@@ -1,0 +1,457 @@
+import { Button, VerticalBox, HorizontalBox, ListView, LineEdit, CheckBox } from "std-widgets.slint";
+
+export struct ProfileData {
+    name: string,
+    created: string,
+    desktop: string,
+    is_remote: bool,
+}
+
+export struct DesktopEnvironmentData {
+    name: string,
+    is_current: bool,
+}
+
+export component AppWindow inherits Window {
+    title: "Shapeshifter - Profile Manager";
+    background: #0a0a0a;
+    preferred-width: 900px;
+    preferred-height: 600px;
+
+    in-out property <string> remote-url;
+    in-out property <[ProfileData]> profiles;
+    in-out property <[DesktopEnvironmentData]> available-desktops;
+    in-out property <string> status-message;
+    in-out property <bool> show-de-switcher: false;
+    
+    callback save-remote-url(string);
+    callback create-profile(string, bool);
+    callback apply-profile(int);
+    callback switch-desktop(int);
+
+    HorizontalBox {
+        // Sidebar
+        sidebar := Rectangle {
+            width: 250px;
+            background: #141414;
+            
+            VerticalBox {
+                padding: 20px;
+                spacing: 20px;
+                
+                Text {
+                    text: "SHAPESHIFTER";
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: #ff6b35;
+                }
+                
+                Rectangle {
+                    height: 2px;
+                    background: #ff6b35;
+                }
+                
+                Button {
+                    text: "📋 Profiles";
+                    background: #ff6b35;
+                    height: 45px;
+                    clicked => { 
+                        root.show-de-switcher = false;
+                    }
+                }
+                
+                Button {
+                    text: "🖥️ Switch DE";
+                    background: root.show-de-switcher ? #ff6b35 : #1a1a1a;
+                    height: 45px;
+                    clicked => { 
+                        root.show-de-switcher = true;
+                    }
+                }
+                
+                Button {
+                    text: "⚙️ Settings";
+                    background: #1a1a1a;
+                    height: 45px;
+                    clicked => { settings-panel.visible = !settings-panel.visible; }
+                }
+                
+                Rectangle {
+                    // Spacer
+                }
+                
+                Text {
+                    text: "v1.0.0";
+                    font-size: 12px;
+                    color: #666;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+        
+        // Main content area
+        VerticalBox {
+            padding: 30px;
+            spacing: 20px;
+            
+            // Header
+            HorizontalBox {
+                spacing: 20px;
+                alignment: space-between;
+                
+                Text {
+                    text: root.show-de-switcher ? "Desktop Environments" : "Saved Profiles";
+                    font-size: 28px;
+                    font-weight: 600;
+                    color: #f5f5f5;
+                }
+                
+                if !root.show-de-switcher: Button {
+                    text: "+ New Profile";
+                    background: #ff6b35;
+                    height: 40px;
+                    clicked => { create-dialog.visible = true; }
+                }
+            }
+            
+            // Desktop Environment Switcher
+            if root.show-de-switcher: de-list := Rectangle {
+                background: #1a1a1a;
+                border-radius: 8px;
+                
+                VerticalBox {
+                    padding: 20px;
+                    spacing: 15px;
+                    
+                    Text {
+                        text: "Available Desktop Environments";
+                        font-size: 16px;
+                        color: #999;
+                    }
+                    
+                    Text {
+                        text: "Switch between installed desktop environments while preserving your settings and packages.";
+                        font-size: 13px;
+                        color: #666;
+                        wrap: word-wrap;
+                    }
+                    
+                    Rectangle {
+                        height: 1px;
+                        background: #2a2a2a;
+                    }
+                    
+                    ListView {
+                        for de[index] in available-desktops: Rectangle {
+                            height: 70px;
+                            background: de-touch.has-hover ? #252525 : transparent;
+                            
+                            de-touch := TouchArea {
+                                HorizontalBox {
+                                    padding: 15px;
+                                    spacing: 15px;
+                                    
+                                    VerticalBox {
+                                        spacing: 5px;
+                                        
+                                        HorizontalBox {
+                                            spacing: 10px;
+                                            
+                                            Text {
+                                                text: de.name;
+                                                font-size: 18px;
+                                                font-weight: 600;
+                                                color: #f5f5f5;
+                                            }
+                                            
+                                            if de.is-current: Rectangle {
+                                                width: 70px;
+                                                height: 20px;
+                                                background: #4CAF50;
+                                                border-radius: 4px;
+                                                
+                                                Text {
+                                                    text: "CURRENT";
+                                                    font-size: 10px;
+                                                    font-weight: 700;
+                                                    color: #0a0a0a;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                        }
+                                        
+                                        Text {
+                                            text: de.is-current ? "Currently active" : "Click to switch (requires logout)";
+                                            font-size: 13px;
+                                            color: #999;
+                                        }
+                                    }
+                                    
+                                    Rectangle {
+                                        // Spacer
+                                    }
+                                    
+                                    if !de.is-current: Button {
+                                        text: "Switch";
+                                        background: #ff6b35;
+                                        width: 100px;
+                                        clicked => { root.switch-desktop(index); }
+                                    }
+                                }
+                            }
+                            
+                            Rectangle {
+                                y: parent.height - 1px;
+                                height: 1px;
+                                background: #2a2a2a;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Profile list
+            if !root.show-de-switcher: profile-list := Rectangle {
+                background: #1a1a1a;
+                border-radius: 8px;
+                
+                ListView {
+                    for profile[index] in profiles: Rectangle {
+                        height: 80px;
+                        background: touch-area.has-hover ? #252525 : transparent;
+                        
+                        touch-area := TouchArea {
+                            HorizontalBox {
+                                padding: 20px;
+                                spacing: 15px;
+                                
+                                VerticalBox {
+                                    spacing: 5px;
+                                    
+                                    HorizontalBox {
+                                        spacing: 10px;
+                                        
+                                        Text {
+                                            text: profile.name;
+                                            font-size: 18px;
+                                            font-weight: 600;
+                                            color: #f5f5f5;
+                                        }
+                                        
+                                        if profile.is-remote: Rectangle {
+                                            width: 60px;
+                                            height: 20px;
+                                            background: #ff6b35;
+                                            border-radius: 4px;
+                                            
+                                            Text {
+                                                text: "REMOTE";
+                                                font-size: 10px;
+                                                font-weight: 700;
+                                                color: #0a0a0a;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+                                    
+                                    Text {
+                                        text: "Created: " + profile.created;
+                                        font-size: 13px;
+                                        color: #999;
+                                    }
+                                    
+                                    Text {
+                                        text: "Desktop: " + profile.desktop;
+                                        font-size: 13px;
+                                        color: #999;
+                                    }
+                                }
+                                
+                                Rectangle {
+                                    // Spacer
+                                }
+                                
+                                Button {
+                                    text: "Apply";
+                                    background: #ff6b35;
+                                    width: 100px;
+                                    clicked => { root.apply-profile(index); }
+                                }
+                            }
+                        }
+                        
+                        Rectangle {
+                            y: parent.height - 1px;
+                            height: 1px;
+                            background: #2a2a2a;
+                        }
+                    }
+                }
+            }
+            
+            // Status bar
+            if status-message != "": Rectangle {
+                height: auto;
+                min-height: 40px;
+                background: #252525;
+                border-radius: 6px;
+                
+                VerticalBox {
+                    padding: 12px;
+                    
+                    Text {
+                        text: status-message;
+                        color: #ff6b35;
+                        horizontal-alignment: left;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Settings panel overlay
+    if settings-panel.visible: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #000000cc;
+        
+        settings-panel := Rectangle {
+            property <bool> visible: false;
+            width: 500px;
+            height: 400px;
+            background: #1a1a1a;
+            border-radius: 12px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            
+            VerticalBox {
+                padding: 30px;
+                spacing: 20px;
+                
+                HorizontalBox {
+                    Text {
+                        text: "Settings";
+                        font-size: 24px;
+                        font-weight: 600;
+                        color: #f5f5f5;
+                    }
+                    
+                    Rectangle {
+                        // Spacer
+                    }
+                    
+                    Button {
+                        text: "✕";
+                        width: 40px;
+                        background: transparent;
+                        clicked => { settings-panel.visible = false; }
+                    }
+                }
+                
+                Rectangle {
+                    height: 1px;
+                    background: #2a2a2a;
+                }
+                
+                VerticalBox {
+                    spacing: 10px;
+                    
+                    Text {
+                        text: "Remote Backup URL";
+                        font-size: 14px;
+                        color: #999;
+                    }
+                    
+                    remote-input := LineEdit {
+                        text: remote-url;
+                        placeholder-text: "https://backup.example.com/profiles";
+                    }
+                    
+                    Button {
+                        text: "Save Remote URL";
+                        background: #ff6b35;
+                        clicked => { 
+                            root.save-remote-url(remote-input.text);
+                            settings-panel.visible = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Create profile dialog
+    if create-dialog.visible: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #000000cc;
+        
+        create-dialog := Rectangle {
+            property <bool> visible: false;
+            width: 500px;
+            height: 350px;
+            background: #1a1a1a;
+            border-radius: 12px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            
+            VerticalBox {
+                padding: 30px;
+                spacing: 20px;
+                
+                Text {
+                    text: "Create New Profile";
+                    font-size: 24px;
+                    font-weight: 600;
+                    color: #f5f5f5;
+                }
+                
+                Rectangle {
+                    height: 1px;
+                    background: #2a2a2a;
+                }
+                
+                VerticalBox {
+                    spacing: 10px;
+                    
+                    Text {
+                        text: "Profile Name";
+                        font-size: 14px;
+                        color: #999;
+                    }
+                    
+                    profile-name := LineEdit {
+                        placeholder-text: "My Profile";
+                    }
+                }
+                
+                save-remote-check := CheckBox {
+                    text: "Save to remote backup";
+                }
+                
+                HorizontalBox {
+                    spacing: 10px;
+                    
+                    Button {
+                        text: "Cancel";
+                        background: #2a2a2a;
+                        clicked => { create-dialog.visible = false; }
+                    }
+                    
+                    Button {
+                        text: "Create Profile";
+                        background: #ff6b35;
+                        clicked => {
+                            root.create-profile(profile-name.text, save-remote-check.checked);
+                            create-dialog.visible = false;
+                            profile-name.text = "";
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
