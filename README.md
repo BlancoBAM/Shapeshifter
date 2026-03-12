@@ -1,6 +1,21 @@
-# Shapeshifter - Complete Setup Guide
+# Shapeshifter - Desktop Environment & Profile Manager
 
-Follow these steps in order to build and run Shapeshifter on your Debian Linux system.
+A complete desktop environment switcher and profile manager for Lilith Linux, built with Rust and Slint.
+
+## Lilith Linux Integration
+
+Shapeshifter is an official system utility for **Lilith Linux**, providing desktop environment switching and system profile management.
+
+### Part of Lilith Linux
+
+| Component | Purpose |
+|-----------|---------|
+| **COSMIC Desktop** | Desktop Environment |
+| **Shapeshifter** | DE Switching & Profiles |
+| **Tweakers** | System Optimization |
+| **Lilim** | AI Assistant |
+
+## Features
 
 ---
 
