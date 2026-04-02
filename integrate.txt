@@ -1,0 +1,5 @@
+https://flathub.org/en/apps/io.github.vikdevelop.SaveDesktop
+https://flathub.org/en/apps/org.indii.mendingwall
+https://flathub.org/en/apps/io.gitlab.dev_nis.one-click-backup
+https://github.com/Prayag2/konsave
+https://github.com/TheUruz/KonUI
