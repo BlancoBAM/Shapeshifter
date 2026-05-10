@@ -53,7 +53,7 @@ export component AppWindow inherits Window {
     in-out property <string> remote-url;
     in-out property <[ProfileData]> profiles;
     in-out property <[DesktopEnvironmentData]> available-desktops;
-    in-out property <string> status-message;
+    in-out property <string> status-message: "";
     in-out property <string> status-type: "info";
     in-out property <[BackupItemData]> backup-items;
     in-out property <[ConflictFixData]> conflict-fixes;
@@ -64,6 +64,10 @@ export component AppWindow inherits Window {
     in-out property <bool> auto-save-enabled: false;
     in-out property <int> auto-save-interval: 24;
     in-out property <string> external-backup-path;
+    in-out property <string> application-version;
+
+    in-out property <string> edit-profile-name;
+    in-out property <bool> edit-profile-remote;
 
     callback save-remote-url(string);
     callback create-profile(string, bool);
@@ -85,10 +89,12 @@ export component AppWindow inherits Window {
     callback apply-conflict-fixes();
     callback refresh-all();
     callback edit-profile(int);
+    callback save-edit-profile(string, string, bool);
 
     in-out property <int> nav-tab: 0;
     in-out property <bool> show-create-dialog: false;
     in-out property <bool> show-import-dialog: false;
+    in-out property <bool> show-edit-dialog: false;
 
     HorizontalBox {
         spacing: 0;
@@ -278,7 +284,7 @@ export component AppWindow inherits Window {
                 }
 
                 Text {
-                    text: "v1.0.0";
+                    text: "v" + root.application-version;
                     font-size: 11px;
                     color: #484f58;
                     horizontal-alignment: center;
@@ -482,6 +488,16 @@ export component AppWindow inherits Window {
 
                                             HorizontalBox {
                                                 spacing: 8px;
+
+                                                Rectangle {
+                                                    background: #21262d;
+                                                    border-radius: 6px;
+                                                    Button {
+                                                        text: "Edit";
+                                                        height: 32px;
+                                                        clicked => { root.edit-profile(index); }
+                                                    }
+                                                }
 
                                                 Rectangle {
                                                     background: #21262d;
@@ -1096,8 +1112,6 @@ export component AppWindow inherits Window {
                         }
 
                         if root.status-message != "": Rectangle {
-                            min-height: 44px;
-                            padding: 12px;
                             background: root.status-type == "error" ? #f8514922 :
                                         root.status-type == "success" ? #23863622 : #f9731622;
                             border-radius: 8px;
@@ -1312,6 +1326,107 @@ export component AppWindow inherits Window {
                                     root.import-profile(import-path.text);
                                     root.show-import-dialog = false;
                                     import-path.text = "";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.show-edit-dialog: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #000000cc;
+
+        edit-dialog-bg := Rectangle {
+            width: 480px;
+            height: 320px;
+            background: #161b22;
+            border-radius: 12px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalBox {
+                padding: 24px;
+                spacing: 20px;
+
+                HorizontalBox {
+                    Text {
+                        text: "Edit Profile";
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: #f0f6fc;
+                    }
+
+                    Rectangle {
+                    }
+
+                    Rectangle {
+                        background: #21262d;
+                        border-radius: 6px;
+                        Button {
+                            text: "X";
+                            width: 32px;
+                            height: 32px;
+                            clicked => { root.show-edit-dialog = false; }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: #30363d;
+                }
+
+                VerticalBox {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Profile Name";
+                        font-size: 13px;
+                        color: #8b949e;
+                    }
+
+                    edit-profile-name-input := LineEdit {
+                        text: root.edit-profile-name;
+                        height: 36px;
+                    }
+                }
+
+                edit-save-remote := CheckBox {
+                    text: "Save to remote backup target";
+                    checked: root.edit-profile-remote;
+                }
+
+                HorizontalBox {
+                    spacing: 8px;
+
+                    Rectangle {
+                    }
+
+                    HorizontalBox {
+                        spacing: 8px;
+
+                        Rectangle {
+                            background: #21262d;
+                            border-radius: 6px;
+                            Button {
+                                text: "Cancel";
+                                height: 36px;
+                                clicked => { root.show-edit-dialog = false; }
+                            }
+                        }
+
+                        Rectangle {
+                            background: #f97316;
+                            border-radius: 6px;
+                            Button {
+                                text: "Save Changes";
+                                height: 36px;
+                                clicked => {
+                                    root.save-edit-profile(root.edit-profile-name, edit-profile-name-input.text, edit-save-remote.checked);
                                 }
                             }
                         }

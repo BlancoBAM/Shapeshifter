@@ -1,0 +1,14 @@
+# Build results
+target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Rust
+Cargo.lock

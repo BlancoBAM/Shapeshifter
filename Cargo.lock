@@ -4458,6 +4458,7 @@ dependencies = [
  "slint",
  "slint-build",
  "tar",
+ "tempfile",
  "tokio",
  "walkdir",
 ]
