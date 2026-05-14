@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+# Remove desktop launcher
+if [ -f /usr/share/applications/shapeshifter.desktop ]; then
+    rm /usr/share/applications/shapeshifter.desktop
+fi
+
+# Update desktop database
+if command -v update-desktop-database &>/dev/null; then
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+fi
+
+# Remove config directory (only if empty)
+rmdir /etc/shapeshifter 2>/dev/null || true
+
+echo "Shapeshifter removed."

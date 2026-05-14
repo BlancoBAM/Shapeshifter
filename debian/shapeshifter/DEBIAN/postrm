@@ -1,0 +1,22 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    # Remove desktop launcher
+    if [ -f /usr/share/applications/shapeshifter.desktop ]; then
+        rm /usr/share/applications/shapeshifter.desktop
+    fi
+
+    # Update desktop database
+    if command -v update-desktop-database &>/dev/null; then
+        update-desktop-database /usr/share/applications 2>/dev/null || true
+    fi
+fi
+
+# Remove config directory on purge
+if [ "$1" = "purge" ]; then
+    rm -rf /etc/shapeshifter
+    rm -rf ~/.config/shapeshifter
+fi
+
+echo "Shapeshifter post-removal complete."

@@ -1,0 +1,14 @@
+Package: shapeshifter
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: libgtk-3-0, libfontconfig1, libxcb-render0, libxcb-shape0, libxcb-xfixes0, libxkbcommon0, libssl3
+Maintainer: Shapeshifter Dev <developer@lilith-linux.org>
+Description: Desktop Environment & Profile Manager for Lilith Linux
+ Shapeshifter unifies desktop environment switching, profile management,
+ and system configuration backup into a single native application.
+ Features include profile create/apply/export/import, DE switching with
+ conflict prevention, backup item management, folder backup, and
+ automatic profile saving.
+
