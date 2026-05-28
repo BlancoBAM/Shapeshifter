@@ -1,4 +1,6 @@
-import { Button, VerticalBox, HorizontalBox, ListView, LineEdit, CheckBox, Slider } from "std-widgets.slint";
+import { LineEdit, CheckBox, Slider } from "std-widgets.slint";
+
+// ─── Data Structures ───────────────────────────────────────────────────────────
 
 export struct ProfileData {
     name: string,
@@ -44,31 +46,160 @@ export struct ScheduledSaveData {
     last_run: string,
 }
 
-export component AppWindow inherits Window {
-    title: "Shapeshifter - Desktop Environment & Profile Manager";
-    background: #0d1117;
-    preferred-width: 1100px;
-    preferred-height: 750px;
+// ─── Reusable Components ───────────────────────────────────────────────────────
 
-    in-out property <string> remote-url;
+// Primary action button (orange)
+component PrimaryBtn inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled-btn: true;
+    callback clicked;
+
+    height: 36px;
+    background: enabled-btn ? #f97316 : #4a3a28;
+    border-radius: 6px;
+
+    btn-touch := TouchArea {
+        mouse-cursor: enabled-btn ? pointer : default;
+        clicked => {
+            if (root.enabled-btn) {
+                root.clicked();
+            }
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 13px;
+            font-weight: 600;
+            color: #ffffff;
+            vertical-alignment: center;
+        }
+    }
+
+    animate background { duration: 100ms; }
+}
+
+// Secondary/neutral button (dark grey)
+component SecondaryBtn inherits Rectangle {
+    in property <string> label;
+    callback clicked;
+
+    height: 36px;
+    background: btn-touch.has-hover ? #2d333b : #21262d;
+    border-radius: 6px;
+
+    btn-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 13px;
+            font-weight: 600;
+            color: #c9d1d9;
+            vertical-alignment: center;
+        }
+    }
+
+    animate background { duration: 100ms; }
+}
+
+// Small action button (for inline list items)
+component SmallBtn inherits Rectangle {
+    in property <string> label;
+    in property <bool> is-primary: false;
+    callback clicked;
+
+    height: 32px;
+    background: is-primary
+        ? (btn-touch.has-hover ? #e0650f : #f97316)
+        : (btn-touch.has-hover ? #2d333b : #21262d);
+    border-radius: 6px;
+
+    btn-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 12px;
+            font-weight: 600;
+            color: #ffffff;
+            vertical-alignment: center;
+        }
+    }
+
+    animate background { duration: 100ms; }
+}
+
+// Pill badge for category labels
+component Pill inherits Rectangle {
+    in property <string> label;
+    in property <color> pill-bg: #21262d;
+    in property <color> pill-color: #8b949e;
+
+    height: 22px;
+    background: pill-bg;
+    border-radius: 11px;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 10px;
+            font-weight: 700;
+            color: root.pill-color;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// ─── Main Window ───────────────────────────────────────────────────────────────
+
+export component AppWindow inherits Window {
+    title: "Shapeshifter — Desktop Environment & Profile Manager";
+    background: #0d1117;
+    preferred-width: 1120px;
+    preferred-height: 760px;
+    min-width: 900px;
+    min-height: 600px;
+
+    // ── Bound properties ────────────────────────────────────────────────────
+    in-out property <string>  remote-url;
     in-out property <[ProfileData]> profiles;
     in-out property <[DesktopEnvironmentData]> available-desktops;
-    in-out property <string> status-message: "";
-    in-out property <string> status-type: "info";
+    in-out property <string>  status-message: "";
+    in-out property <string>  status-type: "info";
     in-out property <[BackupItemData]> backup-items;
     in-out property <[ConflictFixData]> conflict-fixes;
     in-out property <[FolderBackupData]> folder-backups;
     in-out property <[ScheduledSaveData]> scheduled-saves;
-    in-out property <string> current-de;
-    in-out property <string> current-user;
-    in-out property <bool> auto-save-enabled: false;
-    in-out property <int> auto-save-interval: 24;
-    in-out property <string> external-backup-path;
-    in-out property <string> application-version;
+    in-out property <string>  current-de;
+    in-out property <string>  current-user;
+    in-out property <bool>    auto-save-enabled: false;
+    in-out property <int>     auto-save-interval: 24;
+    in-out property <string>  external-backup-path;
+    in-out property <string>  application-version;
+    in-out property <string>  edit-profile-name;
+    in-out property <bool>    edit-profile-remote;
 
-    in-out property <string> edit-profile-name;
-    in-out property <bool> edit-profile-remote;
-
+    // ── Callbacks ────────────────────────────────────────────────────────────
     callback save-remote-url(string);
     callback create-profile(string, bool);
     callback apply-profile(int);
@@ -91,1036 +222,1126 @@ export component AppWindow inherits Window {
     callback edit-profile(int);
     callback save-edit-profile(string, string, bool);
 
-    in-out property <int> nav-tab: 0;
+    // ── Navigation state ─────────────────────────────────────────────────────
+    in-out property <int>  nav-tab: 0;
     in-out property <bool> show-create-dialog: false;
     in-out property <bool> show-import-dialog: false;
-    in-out property <bool> show-edit-dialog: false;
+    in-out property <bool> show-edit-dialog:   false;
 
-    HorizontalBox {
+    // ════════════════════════════════════════════════════════════════════════
+    // Main Layout: Sidebar | Content
+    // ════════════════════════════════════════════════════════════════════════
+    HorizontalLayout {
         spacing: 0;
 
+        // ── Sidebar ────────────────────────────────────────────────────────
         sidebar := Rectangle {
-            width: 260px;
+            width: 240px;
             background: #161b22;
 
-            VerticalBox {
-                padding: 24px;
-                spacing: 8px;
+            VerticalLayout {
+                padding-top: 28px;
+                padding-bottom: 20px;
+                padding-left: 0px;
+                padding-right: 0px;
+                spacing: 2px;
 
-                Text {
-                    text: "SHAPESHIFTER";
-                    font-size: 22px;
-                    font-weight: 800;
-                    color: #f97316;
-                    letter-spacing: 2px;
+                // Brand
+                VerticalLayout {
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    padding-bottom: 8px;
+                    spacing: 3px;
+                    Text {
+                        text: "SHAPESHIFTER";
+                        font-size: 18px;
+                        font-weight: 800;
+                        color: #f97316;
+                        letter-spacing: 1.5px;
+                    }
+                    Text {
+                        text: "Desktop & Profile Manager";
+                        font-size: 11px;
+                        color: #8b949e;
+                        wrap: no-wrap;
+                    }
                 }
 
-                Text {
-                    text: "Desktop & Profile Manager";
-                    font-size: 11px;
-                    color: #8b949e;
-                }
-
+                // Divider
                 Rectangle {
                     height: 1px;
                     background: #30363d;
+                    horizontal-stretch: 1;
                 }
 
-                Rectangle {
-                    width: 100%;
-                    height: 44px;
-                    background: root.nav-tab == 0 ? #f9731622 : #00000000;
-                    border-radius: 8px;
-                    TouchArea {
+                Rectangle { height: 8px; }
+
+                // ── Nav Items ───────────────────────────────────────────────
+                // 0 · Profiles
+                nav-item-0 := Rectangle {
+                    height: 42px;
+                    horizontal-stretch: 1;
+                    background: root.nav-tab == 0
+                        ? #f9731614
+                        : (nav-touch-0.has-hover ? #ffffff0a : transparent);
+
+                    // Left accent bar for active item
+                    if root.nav-tab == 0: Rectangle {
+                        width: 3px;
+                        height: 28px;
+                        background: #f97316;
+                        border-radius: 2px;
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    nav-touch-0 := TouchArea {
                         clicked => { root.nav-tab = 0; }
-                        HorizontalBox {
-                            padding: 16px;
-                            spacing: 12px;
-                            alignment: center;
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            spacing: 10px;
+                            alignment: start;
                             Text {
                                 text: "Profiles";
                                 font-size: 14px;
-                                font-weight: 600;
-                                color: root.nav-tab == 0 ? #f97316 : #c9d1d9;
+                                font-weight: root.nav-tab == 0 ? 700 : 500;
+                                color: root.nav-tab == 0 ? #f97316 : #8b949e;
+                                vertical-alignment: center;
                             }
                         }
                     }
+                    animate background { duration: 120ms; }
                 }
 
-                Rectangle {
-                    width: 100%;
-                    height: 44px;
-                    background: root.nav-tab == 1 ? #f9731622 : #00000000;
-                    border-radius: 8px;
-                    TouchArea {
+                // 1 · Desktop Switcher
+                nav-item-1 := Rectangle {
+                    height: 42px;
+                    horizontal-stretch: 1;
+                    background: root.nav-tab == 1
+                        ? #f9731614
+                        : (nav-touch-1.has-hover ? #ffffff0a : transparent);
+
+                    if root.nav-tab == 1: Rectangle {
+                        width: 3px;
+                        height: 28px;
+                        background: #f97316;
+                        border-radius: 2px;
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    nav-touch-1 := TouchArea {
                         clicked => { root.nav-tab = 1; }
-                        HorizontalBox {
-                            padding: 16px;
-                            spacing: 12px;
-                            alignment: center;
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            alignment: start;
                             Text {
                                 text: "Desktop Switcher";
                                 font-size: 14px;
-                                font-weight: 600;
-                                color: root.nav-tab == 1 ? #f97316 : #c9d1d9;
+                                font-weight: root.nav-tab == 1 ? 700 : 500;
+                                color: root.nav-tab == 1 ? #f97316 : #8b949e;
+                                vertical-alignment: center;
                             }
                         }
                     }
+                    animate background { duration: 120ms; }
                 }
 
-                Rectangle {
-                    width: 100%;
-                    height: 44px;
-                    background: root.nav-tab == 2 ? #f9731622 : #00000000;
-                    border-radius: 8px;
-                    TouchArea {
+                // 2 · Backup Items
+                nav-item-2 := Rectangle {
+                    height: 42px;
+                    horizontal-stretch: 1;
+                    background: root.nav-tab == 2
+                        ? #f9731614
+                        : (nav-touch-2.has-hover ? #ffffff0a : transparent);
+
+                    if root.nav-tab == 2: Rectangle {
+                        width: 3px;
+                        height: 28px;
+                        background: #f97316;
+                        border-radius: 2px;
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    nav-touch-2 := TouchArea {
                         clicked => { root.nav-tab = 2; }
-                        HorizontalBox {
-                            padding: 16px;
-                            spacing: 12px;
-                            alignment: center;
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            alignment: start;
                             Text {
                                 text: "Backup Items";
                                 font-size: 14px;
-                                font-weight: 600;
-                                color: root.nav-tab == 2 ? #f97316 : #c9d1d9;
+                                font-weight: root.nav-tab == 2 ? 700 : 500;
+                                color: root.nav-tab == 2 ? #f97316 : #8b949e;
+                                vertical-alignment: center;
                             }
                         }
                     }
+                    animate background { duration: 120ms; }
                 }
 
-                Rectangle {
-                    width: 100%;
-                    height: 44px;
-                    background: root.nav-tab == 3 ? #f9731622 : #00000000;
-                    border-radius: 8px;
-                    TouchArea {
+                // 3 · DE Conflict Fixes
+                nav-item-3 := Rectangle {
+                    height: 42px;
+                    horizontal-stretch: 1;
+                    background: root.nav-tab == 3
+                        ? #f9731614
+                        : (nav-touch-3.has-hover ? #ffffff0a : transparent);
+
+                    if root.nav-tab == 3: Rectangle {
+                        width: 3px;
+                        height: 28px;
+                        background: #f97316;
+                        border-radius: 2px;
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    nav-touch-3 := TouchArea {
                         clicked => { root.nav-tab = 3; }
-                        HorizontalBox {
-                            padding: 16px;
-                            spacing: 12px;
-                            alignment: center;
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            alignment: start;
                             Text {
                                 text: "DE Conflict Fixes";
                                 font-size: 14px;
-                                font-weight: 600;
-                                color: root.nav-tab == 3 ? #f97316 : #c9d1d9;
+                                font-weight: root.nav-tab == 3 ? 700 : 500;
+                                color: root.nav-tab == 3 ? #f97316 : #8b949e;
+                                vertical-alignment: center;
                             }
                         }
                     }
+                    animate background { duration: 120ms; }
                 }
 
-                Rectangle {
-                    width: 100%;
-                    height: 44px;
-                    background: root.nav-tab == 4 ? #f9731622 : #00000000;
-                    border-radius: 8px;
-                    TouchArea {
+                // 4 · Folder Backup
+                nav-item-4 := Rectangle {
+                    height: 42px;
+                    horizontal-stretch: 1;
+                    background: root.nav-tab == 4
+                        ? #f9731614
+                        : (nav-touch-4.has-hover ? #ffffff0a : transparent);
+
+                    if root.nav-tab == 4: Rectangle {
+                        width: 3px;
+                        height: 28px;
+                        background: #f97316;
+                        border-radius: 2px;
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    nav-touch-4 := TouchArea {
                         clicked => { root.nav-tab = 4; }
-                        HorizontalBox {
-                            padding: 16px;
-                            spacing: 12px;
-                            alignment: center;
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            alignment: start;
                             Text {
                                 text: "Folder Backup";
                                 font-size: 14px;
-                                font-weight: 600;
-                                color: root.nav-tab == 4 ? #f97316 : #c9d1d9;
+                                font-weight: root.nav-tab == 4 ? 700 : 500;
+                                color: root.nav-tab == 4 ? #f97316 : #8b949e;
+                                vertical-alignment: center;
                             }
                         }
                     }
+                    animate background { duration: 120ms; }
                 }
 
-                Rectangle {
-                }
+                // Spacer
+                Rectangle { vertical-stretch: 1; }
 
+                // Divider
                 Rectangle {
                     height: 1px;
                     background: #30363d;
+                    horizontal-stretch: 1;
                 }
 
-                Rectangle {
-                    width: 100%;
-                    height: 44px;
-                    background: root.nav-tab == 5 ? #f9731622 : #00000000;
-                    border-radius: 8px;
-                    TouchArea {
+                // 5 · Settings
+                nav-item-5 := Rectangle {
+                    height: 42px;
+                    horizontal-stretch: 1;
+                    background: root.nav-tab == 5
+                        ? #f9731614
+                        : (nav-touch-5.has-hover ? #ffffff0a : transparent);
+
+                    if root.nav-tab == 5: Rectangle {
+                        width: 3px;
+                        height: 28px;
+                        background: #f97316;
+                        border-radius: 2px;
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    nav-touch-5 := TouchArea {
                         clicked => { root.nav-tab = 5; }
-                        HorizontalBox {
-                            padding: 16px;
-                            spacing: 12px;
-                            alignment: center;
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            alignment: start;
                             Text {
                                 text: "Settings";
                                 font-size: 14px;
-                                font-weight: 600;
-                                color: root.nav-tab == 5 ? #f97316 : #c9d1d9;
+                                font-weight: root.nav-tab == 5 ? 700 : 500;
+                                color: root.nav-tab == 5 ? #f97316 : #8b949e;
+                                vertical-alignment: center;
                             }
                         }
                     }
+                    animate background { duration: 120ms; }
                 }
 
+                // Divider
                 Rectangle {
                     height: 1px;
                     background: #30363d;
+                    horizontal-stretch: 1;
                 }
 
-                HorizontalBox {
-                    alignment: center;
-                    spacing: 8px;
+                // Status footer
+                VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 16px;
+                    padding-top: 10px;
+                    spacing: 4px;
 
-                    Rectangle {
-                        width: 8px;
-                        height: 8px;
-                        border-radius: 4px;
-                        background: #3fb950;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: #3fb950;
+                            y: 3px;
+                        }
+                        Text {
+                            text: root.current-de != "" ? root.current-de : "Unknown DE";
+                            font-size: 11px;
+                            color: #8b949e;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
                     }
 
                     Text {
-                        text: root.current-de;
-                        font-size: 12px;
-                        color: #8b949e;
+                        text: "v" + root.application-version;
+                        font-size: 10px;
+                        color: #484f58;
                     }
-                }
-
-                Text {
-                    text: "v" + root.application-version;
-                    font-size: 11px;
-                    color: #484f58;
-                    horizontal-alignment: center;
                 }
             }
         }
 
-        main-content := Rectangle {
-            background: #0d1117;
+        // Thin vertical separator
+        Rectangle {
+            width: 1px;
+            background: #21262d;
+        }
 
-            VerticalBox {
-                padding: 0;
-                spacing: 0;
+        // ── Main content area ──────────────────────────────────────────────
+        VerticalLayout {
+            vertical-stretch: 1;
+            spacing: 0;
 
-                header-bar := Rectangle {
-                    height: 64px;
-                    background: #161b22;
+            // Header bar
+            header := Rectangle {
+                height: 62px;
+                background: #161b22;
 
-                    HorizontalBox {
-                        padding: 32px;
-                        spacing: 16px;
-                        alignment: center;
+                HorizontalLayout {
+                    padding-left: 28px;
+                    padding-right: 20px;
+                    spacing: 12px;
+                    alignment: center;
 
-                        Text {
-                            text: root.nav-tab == 0 ? "Profiles" :
-                                  root.nav-tab == 1 ? "Desktop Environments" :
-                                  root.nav-tab == 2 ? "Backup Items" :
-                                  root.nav-tab == 3 ? "DE Conflict Prevention" :
-                                  root.nav-tab == 4 ? "Folder Backup" : "Settings";
-                            font-size: 20px;
-                            font-weight: 700;
-                            color: #f0f6fc;
+                    Text {
+                        text: root.nav-tab == 0 ? "Profiles" :
+                              root.nav-tab == 1 ? "Desktop Environments" :
+                              root.nav-tab == 2 ? "Backup Items" :
+                              root.nav-tab == 3 ? "DE Conflict Prevention" :
+                              root.nav-tab == 4 ? "Folder Backup" : "Settings";
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    // Profiles header buttons
+                    if root.nav-tab == 0: HorizontalLayout {
+                        spacing: 8px;
+                        SecondaryBtn {
+                            label: "Import";
+                            height: 36px;
+                            clicked => { root.show-import-dialog = true; }
                         }
-
-                        Rectangle {
-                        }
-
-                        if root.nav-tab == 0: HorizontalBox {
-                            spacing: 8px;
-
-                            Rectangle {
-                                background: #f97316;
-                                border-radius: 6px;
-                                Button {
-                                    text: "Import";
-                                    height: 36px;
-                                    clicked => { root.show-import-dialog = true; }
-                                }
-                            }
-
-                            Rectangle {
-                                background: #f97316;
-                                border-radius: 6px;
-                                Button {
-                                    text: "+ New Profile";
-                                    height: 36px;
-                                    clicked => { root.show-create-dialog = true; }
-                                }
-                            }
-                        }
-
-                        if root.nav-tab == 1: Rectangle {
-                            background: #30363d;
-                            border-radius: 6px;
-                            Button {
-                                text: "Refresh";
-                                height: 36px;
-                                clicked => { root.refresh-all(); }
-                            }
-                        }
-
-                        if root.nav-tab == 3: Rectangle {
-                            background: #f97316;
-                            border-radius: 6px;
-                            Button {
-                                text: "Apply Selected Fixes";
-                                height: 36px;
-                                clicked => { root.apply-conflict-fixes(); }
-                            }
+                        PrimaryBtn {
+                            label: "+ New Profile";
+                            height: 36px;
+                            clicked => { root.show-create-dialog = true; }
                         }
                     }
+
+                    // Desktop Switcher refresh button
+                    if root.nav-tab == 1: SecondaryBtn {
+                        label: "⟳  Refresh";
+                        height: 36px;
+                        clicked => { root.refresh-all(); }
+                    }
+
+                    // Conflict fixes apply button
+                    if root.nav-tab == 3: PrimaryBtn {
+                        label: "Apply Selected Fixes";
+                        height: 36px;
+                        clicked => { root.apply-conflict-fixes(); }
+                    }
                 }
+            }
 
-                content-area := Rectangle {
-                    background: #0d1117;
+            // Thin underline separator
+            Rectangle {
+                height: 1px;
+                background: #21262d;
+            }
 
-                    VerticalBox {
-                        padding: 24px;
-                        spacing: 20px;
+            // ── Scrollable content ─────────────────────────────────────────
+            content-scroll := Rectangle {
+                vertical-stretch: 1;
+                background: #0d1117;
+                clip: true;
 
-                        if root.nav-tab == 0: VerticalBox {
-                            spacing: 16px;
+                VerticalLayout {
+                    vertical-stretch: 1;
+                    padding: 24px;
+                    spacing: 16px;
 
-                            if profiles.length == 0: Rectangle {
-                                height: 300px;
-                                background: #161b22;
-                                border-radius: 12px;
+                    // ════════════════════════════════════════════
+                    // TAB 0: Profiles
+                    // ════════════════════════════════════════════
+                    if root.nav-tab == 0: VerticalLayout {
+                        vertical-stretch: 1;
+                        spacing: 14px;
 
-                                VerticalBox {
-                                    alignment: center;
-                                    spacing: 12px;
+                        // Empty state
+                        if profiles.length == 0: Rectangle {
+                            height: 280px;
+                            background: #161b22;
+                            border-radius: 12px;
 
-                                    Text {
-                                        text: "No profiles yet";
-                                        font-size: 18px;
-                                        font-weight: 600;
-                                        color: #8b949e;
-                                    }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 14px;
+                                padding: 24px;
 
-                                    Text {
-                                        text: "Create a profile to save your current desktop configuration";
-                                        font-size: 13px;
-                                        color: #484f58;
-                                    }
-
-                                    Rectangle {
-                                        background: #f97316;
-                                        border-radius: 8px;
-                                        Button {
-                                            text: "Create Your First Profile";
-                                            height: 40px;
-                                            clicked => { root.show-create-dialog = true; }
-                                        }
-                                    }
+                                Text {
+                                    text: "No profiles yet";
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    color: #8b949e;
+                                    horizontal-alignment: center;
                                 }
-                            }
-
-                            ListView {
-                                for profile[index] in profiles: Rectangle {
-                                    height: 90px;
-                                    background: profile-hover.has-hover ? #161b22 : #00000000;
-
-                                    profile-hover := TouchArea {
-                                        HorizontalBox {
-                                            padding: 16px;
-                                            spacing: 16px;
-                                            alignment: center;
-
-                                            VerticalBox {
-                                                spacing: 4px;
-
-                                                HorizontalBox {
-                                                    spacing: 10px;
-                                                    alignment: center;
-
-                                                    Text {
-                                                        text: profile.name;
-                                                        font-size: 16px;
-                                                        font-weight: 600;
-                                                        color: #f0f6fc;
-                                                    }
-
-                                                    if profile.is-remote: Rectangle {
-                                                        height: 20px;
-                                                        background: #f9731633;
-                                                        border-radius: 10px;
-                                                        HorizontalBox {
-                                                            alignment: center;
-                                                            padding: 8px;
-                                                            Text {
-                                                                text: "REMOTE";
-                                                                font-size: 9px;
-                                                                font-weight: 700;
-                                                                color: #f97316;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-
-                                                HorizontalBox {
-                                                    spacing: 16px;
-
-                                                    Text {
-                                                        text: "Created: " + profile.created;
-                                                        font-size: 12px;
-                                                        color: #8b949e;
-                                                    }
-
-                                                    Text {
-                                                        text: "DE: " + profile.desktop;
-                                                        font-size: 12px;
-                                                        color: #8b949e;
-                                                    }
-
-                                                    Text {
-                                                        text: "Pkgs: " + profile.package-count;
-                                                        font-size: 12px;
-                                                        color: #8b949e;
-                                                    }
-
-                                                    Text {
-                                                        text: "Configs: " + profile.config-count;
-                                                        font-size: 12px;
-                                                        color: #8b949e;
-                                                    }
-                                                }
-                                            }
-
-                                            Rectangle {
-                                            }
-
-                                            HorizontalBox {
-                                                spacing: 8px;
-
-                                                Rectangle {
-                                                    background: #21262d;
-                                                    border-radius: 6px;
-                                                    Button {
-                                                        text: "Edit";
-                                                        height: 32px;
-                                                        clicked => { root.edit-profile(index); }
-                                                    }
-                                                }
-
-                                                Rectangle {
-                                                    background: #21262d;
-                                                    border-radius: 6px;
-                                                    Button {
-                                                        text: "Export";
-                                                        height: 32px;
-                                                        clicked => { root.export-profile(index); }
-                                                    }
-                                                }
-
-                                                Rectangle {
-                                                    background: #21262d;
-                                                    border-radius: 6px;
-                                                    Button {
-                                                        text: "Delete";
-                                                        height: 32px;
-                                                        clicked => { root.delete-profile(index); }
-                                                    }
-                                                }
-
-                                                Rectangle {
-                                                    background: #f97316;
-                                                    border-radius: 6px;
-                                                    Button {
-                                                        text: "Apply";
-                                                        height: 32px;
-                                                        clicked => { root.apply-profile(index); }
-                                                    }
-                                                }
-                                            }
-                                        }
+                                Text {
+                                    text: "Create a profile to capture your current desktop configuration,\ninstalled packages, and dotfiles.";
+                                    font-size: 13px;
+                                    color: #484f58;
+                                    horizontal-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    alignment: center;
+                                    PrimaryBtn {
+                                        label: "Create Your First Profile";
+                                        height: 40px;
+                                        clicked => { root.show-create-dialog = true; }
                                     }
                                 }
                             }
                         }
 
-                        if root.nav-tab == 1: VerticalBox {
-                            spacing: 16px;
+                        // Profile list
+                        for profile[index] in profiles: Rectangle {
+                            height: 88px;
+                            background: profile-hover.has-hover ? #1c2128 : #161b22;
+                            border-radius: 10px;
 
-                            Rectangle {
-                                background: #161b22;
-                                border-radius: 12px;
-
-                                VerticalBox {
-                                    padding: 20px;
-                                    spacing: 8px;
-
-                                    Text {
-                                        text: "Switch between installed desktop environments";
-                                        font-size: 14px;
-                                        color: #c9d1d9;
-                                    }
-
-                                    Text {
-                                        text: "Your settings and packages will be preserved. Switching requires logout to take full effect.";
-                                        font-size: 12px;
-                                        color: #8b949e;
-                                        wrap: word-wrap;
-                                    }
-                                }
-                            }
-
-                            if available-desktops.length == 0: Rectangle {
-                                height: 200px;
-                                background: #161b22;
-                                border-radius: 12px;
-                                HorizontalBox {
+                            profile-hover := TouchArea {
+                                HorizontalLayout {
+                                    padding: 18px;
+                                    spacing: 14px;
                                     alignment: center;
-                                    Text {
-                                        text: "No desktop environments detected. Click Refresh to scan for installed DEs.";
-                                        font-size: 14px;
-                                        color: #8b949e;
-                                    }
-                                }
-                            }
 
-                            ListView {
-                                for de[index] in available-desktops: Rectangle {
-                                    height: 80px;
-                                    background: de-hover.has-hover ? #161b22 : #00000000;
+                                    VerticalLayout {
+                                        vertical-stretch: 1;
+                                        spacing: 6px;
+                                        alignment: center;
 
-                                    de-hover := TouchArea {
-                                        HorizontalBox {
-                                            padding: 16px;
-                                            spacing: 16px;
-                                            alignment: center;
-
-                                            VerticalBox {
-                                                spacing: 4px;
-
-                                                HorizontalBox {
-                                                    spacing: 10px;
-                                                    alignment: center;
-
-                                                    Text {
-                                                        text: de.name;
-                                                        font-size: 16px;
-                                                        font-weight: 600;
-                                                        color: #f0f6fc;
-                                                    }
-
-                                                    if de.is-current: Rectangle {
-                                                        height: 22px;
-                                                        background: #23863633;
-                                                        border-radius: 10px;
-                                                        HorizontalBox {
-                                                            alignment: center;
-                                                            padding: 10px;
-                                                            Text {
-                                                                text: "CURRENT";
-                                                                font-size: 10px;
-                                                                font-weight: 700;
-                                                                color: #3fb950;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-
-                                                Text {
-                                                    text: de.is-current ? "Currently active desktop environment" : "Click Switch to set as default (requires logout)";
-                                                    font-size: 12px;
-                                                    color: #8b949e;
-                                                }
-                                            }
-
-                                            Rectangle {
-                                            }
-
-                                            if !de.is-current: Rectangle {
-                                                background: #f97316;
-                                                border-radius: 6px;
-                                                Button {
-                                                    text: "Switch";
-                                                    height: 36px;
-                                                    clicked => { root.switch-desktop(index); }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if root.nav-tab == 2: VerticalBox {
-                            spacing: 16px;
-
-                            Rectangle {
-                                background: #161b22;
-                                border-radius: 12px;
-
-                                VerticalBox {
-                                    padding: 20px;
-                                    spacing: 8px;
-
-                                    Text {
-                                        text: "Select what to include in profile backups";
-                                        font-size: 14px;
-                                        color: #c9d1d9;
-                                    }
-
-                                    Text {
-                                        text: "These items will be saved when creating a new profile. Toggle items on or off based on your needs.";
-                                        font-size: 12px;
-                                        color: #8b949e;
-                                        wrap: word-wrap;
-                                    }
-                                }
-                            }
-
-                            ListView {
-                                for item[index] in backup-items: Rectangle {
-                                    height: 60px;
-                                    background: bi-hover.has-hover ? #161b22 : #00000000;
-
-                                    bi-hover := TouchArea {
-                                        HorizontalBox {
-                                            padding: 12px;
-                                            spacing: 16px;
-                                            alignment: center;
-
-                                            CheckBox {
-                                                checked: item.enabled;
-                                                toggled => { root.toggle-backup-item(index, self.checked); }
-                                            }
-
-                                            VerticalBox {
-                                                spacing: 2px;
-
-                                                Text {
-                                                    text: item.name;
-                                                    font-size: 14px;
-                                                    font-weight: 500;
-                                                    color: #f0f6fc;
-                                                }
-
-                                                Text {
-                                                    text: item.path;
-                                                    font-size: 11px;
-                                                    color: #8b949e;
-                                                }
-                                            }
-
-                                            Rectangle {
-                                            }
-
-                                            Rectangle {
-                                                height: 22px;
-                                                background: #21262d;
-                                                border-radius: 10px;
-                                                HorizontalBox {
-                                                    alignment: center;
-                                                    padding: 8px;
-                                                    Text {
-                                                        text: item.category;
-                                                        font-size: 10px;
-                                                        font-weight: 600;
-                                                        color: #8b949e;
-                                                    }
-                                                }
-                                            }
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            alignment: start;
 
                                             Text {
-                                                text: item.size-estimate;
-                                                font-size: 12px;
+                                                text: profile.name;
+                                                font-size: 15px;
+                                                font-weight: 600;
+                                                color: #f0f6fc;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
+
+                                            if profile.is-remote: Pill {
+                                                label: "REMOTE";
+                                                pill-bg: #f9731622;
+                                                pill-color: #f97316;
+                                            }
+                                        }
+
+                                        HorizontalLayout {
+                                            spacing: 18px;
+                                            alignment: start;
+                                            Text {
+                                                text: "Created " + profile.created;
+                                                font-size: 11px;
                                                 color: #484f58;
-                                                horizontal-alignment: right;
                                             }
+                                            Text {
+                                                text: "DE: " + profile.desktop;
+                                                font-size: 11px;
+                                                color: #484f58;
+                                            }
+                                            Text {
+                                                text: profile.package-count + " pkgs";
+                                                font-size: 11px;
+                                                color: #484f58;
+                                            }
+                                            Text {
+                                                text: profile.config-count + " configs";
+                                                font-size: 11px;
+                                                color: #484f58;
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle { horizontal-stretch: 1; }
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: end;
+                                        SmallBtn {
+                                            label: "Edit";
+                                            clicked => { root.edit-profile(index); }
+                                        }
+                                        SmallBtn {
+                                            label: "Export";
+                                            clicked => { root.export-profile(index); }
+                                        }
+                                        SmallBtn {
+                                            label: "Delete";
+                                            clicked => { root.delete-profile(index); }
+                                        }
+                                        SmallBtn {
+                                            label: "Apply";
+                                            is-primary: true;
+                                            clicked => { root.apply-profile(index); }
                                         }
                                     }
                                 }
                             }
+                            animate background { duration: 120ms; }
                         }
+                    }
 
-                        if root.nav-tab == 3: VerticalBox {
-                            spacing: 16px;
+                    // ════════════════════════════════════════════
+                    // TAB 1: Desktop Switcher
+                    // ════════════════════════════════════════════
+                    if root.nav-tab == 1: VerticalLayout {
+                        vertical-stretch: 1;
+                        spacing: 14px;
 
-                            Rectangle {
-                                background: #161b22;
-                                border-radius: 12px;
-
-                                VerticalBox {
-                                    padding: 20px;
-                                    spacing: 8px;
-
-                                    Text {
-                                        text: "Prevent conflicts between multiple desktop environments";
-                                        font-size: 14px;
-                                        color: #c9d1d9;
-                                    }
-
-                                    Text {
-                                        text: "These fixes prevent common issues when switching between DEs, such as icon themes, cursor themes, scaling, and menu clutter.";
-                                        font-size: 12px;
-                                        color: #8b949e;
-                                        wrap: word-wrap;
-                                    }
+                        // Info card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            height: 72px;
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 4px;
+                                Text {
+                                    text: "Switch between installed desktop environments";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: #c9d1d9;
+                                }
+                                Text {
+                                    text: "Settings and packages are preserved. Switching requires a logout to take full effect.";
+                                    font-size: 12px;
+                                    color: #8b949e;
+                                    wrap: word-wrap;
+                                    overflow: elide;
                                 }
                             }
+                        }
 
-                            ListView {
-                                for fix[index] in conflict-fixes: Rectangle {
-                                    height: 70px;
-                                    background: cf-hover.has-hover ? #161b22 : #00000000;
+                        // Empty state
+                        if available-desktops.length == 0: Rectangle {
+                            height: 160px;
+                            background: #161b22;
+                            border-radius: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                padding: 24px;
+                                Text {
+                                    text: "No desktop environments detected.\nClick Refresh in the header to scan for installed DEs.";
+                                    font-size: 13px;
+                                    color: #8b949e;
+                                    horizontal-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
 
-                                    cf-hover := TouchArea {
-                                        HorizontalBox {
-                                            padding: 12px;
-                                            spacing: 16px;
-                                            alignment: center;
+                        // DE list
+                        for de[index] in available-desktops: Rectangle {
+                            height: 76px;
+                            background: de-hover.has-hover ? #1c2128 : #161b22;
+                            border-radius: 10px;
 
-                                            CheckBox {
-                                                checked: fix.enabled;
-                                                toggled => { root.toggle-conflict-fix(index, self.checked); }
+                            de-hover := TouchArea {
+                                HorizontalLayout {
+                                    padding: 18px;
+                                    spacing: 14px;
+                                    alignment: center;
+
+                                    VerticalLayout {
+                                        vertical-stretch: 1;
+                                        spacing: 5px;
+                                        alignment: center;
+
+                                        HorizontalLayout {
+                                            spacing: 10px;
+                                            alignment: start;
+                                            Text {
+                                                text: de.name;
+                                                font-size: 15px;
+                                                font-weight: 600;
+                                                color: #f0f6fc;
+                                                vertical-alignment: center;
                                             }
-
-                                            VerticalBox {
-                                                spacing: 4px;
-
-                                                Text {
-                                                    text: fix.name;
-                                                    font-size: 14px;
-                                                    font-weight: 500;
-                                                    color: #f0f6fc;
-                                                }
-
-                                                Text {
-                                                    text: fix.description;
-                                                    font-size: 12px;
-                                                    color: #8b949e;
-                                                    wrap: word-wrap;
-                                                }
-                                            }
-
-                                            Rectangle {
-                                            }
-
-                                            Rectangle {
-                                                height: 22px;
-                                                background: #21262d;
-                                                border-radius: 10px;
-                                                HorizontalBox {
-                                                    alignment: center;
-                                                    padding: 8px;
-                                                    Text {
-                                                        text: fix.category;
-                                                        font-size: 10px;
-                                                        font-weight: 600;
-                                                        color: #8b949e;
-                                                    }
-                                                }
+                                            if de.is-current: Pill {
+                                                label: "CURRENT";
+                                                pill-bg: #23863633;
+                                                pill-color: #3fb950;
                                             }
                                         }
+
+                                        Text {
+                                            text: de.is-current
+                                                ? "Currently active desktop environment"
+                                                : "Click Switch to set as default (requires logout)";
+                                            font-size: 12px;
+                                            color: #484f58;
+                                        }
                                     }
+
+                                    Rectangle { horizontal-stretch: 1; }
+
+                                    if !de.is-current: SmallBtn {
+                                        label: "Switch";
+                                        is-primary: true;
+                                        clicked => { root.switch-desktop(index); }
+                                    }
+                                }
+                            }
+                            animate background { duration: 120ms; }
+                        }
+                    }
+
+                    // ════════════════════════════════════════════
+                    // TAB 2: Backup Items
+                    // ════════════════════════════════════════════
+                    if root.nav-tab == 2: VerticalLayout {
+                        vertical-stretch: 1;
+                        spacing: 14px;
+
+                        // Info card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            height: 72px;
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 4px;
+                                Text {
+                                    text: "Select what to include in profile backups";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: #c9d1d9;
+                                }
+                                Text {
+                                    text: "Toggle items on or off — these paths are archived when you create a new profile.";
+                                    font-size: 12px;
+                                    color: #8b949e;
+                                    overflow: elide;
                                 }
                             }
                         }
 
-                        if root.nav-tab == 4: VerticalBox {
-                            spacing: 16px;
+                        // Backup item list
+                        for item[index] in backup-items: Rectangle {
+                            height: 62px;
+                            background: bi-hover.has-hover ? #1c2128 : #161b22;
+                            border-radius: 8px;
 
-                            Rectangle {
-                                background: #161b22;
-                                border-radius: 12px;
+                            bi-hover := TouchArea {
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 18px;
+                                    spacing: 14px;
+                                    alignment: center;
 
-                                VerticalBox {
-                                    padding: 20px;
-                                    spacing: 8px;
+                                    CheckBox {
+                                        checked: item.enabled;
+                                        toggled => { root.toggle-backup-item(index, self.checked); }
+                                    }
 
-                                    Text {
-                                        text: "Backup specific folders to external locations";
-                                        font-size: 14px;
-                                        color: #c9d1d9;
+                                    VerticalLayout {
+                                        vertical-stretch: 1;
+                                        spacing: 3px;
+                                        alignment: center;
+                                        Text {
+                                            text: item.name;
+                                            font-size: 13px;
+                                            font-weight: 500;
+                                            color: #f0f6fc;
+                                        }
+                                        Text {
+                                            text: item.path;
+                                            font-size: 11px;
+                                            color: #484f58;
+                                            overflow: elide;
+                                        }
+                                    }
+
+                                    Rectangle { horizontal-stretch: 1; }
+
+                                    Pill {
+                                        label: item.category;
                                     }
 
                                     Text {
-                                        text: "Copy your important folders to external drives, network locations, or cloud-synced directories.";
-                                        font-size: 12px;
-                                        color: #8b949e;
-                                        wrap: word-wrap;
+                                        text: item.size-estimate;
+                                        font-size: 11px;
+                                        color: #484f58;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        min-width: 70px;
                                     }
                                 }
                             }
+                            animate background { duration: 120ms; }
+                        }
+                    }
 
-                            HorizontalBox {
+                    // ════════════════════════════════════════════
+                    // TAB 3: DE Conflict Fixes
+                    // ════════════════════════════════════════════
+                    if root.nav-tab == 3: VerticalLayout {
+                        vertical-stretch: 1;
+                        spacing: 14px;
+
+                        // Info card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            height: 72px;
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 4px;
+                                Text {
+                                    text: "Prevent conflicts between multiple desktop environments";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: #c9d1d9;
+                                }
+                                Text {
+                                    text: "Fixes icon, cursor, GTK theme isolation, scaling, dark mode, and menu clutter issues.";
+                                    font-size: 12px;
+                                    color: #8b949e;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+
+                        // Conflict fix list
+                        for fix[index] in conflict-fixes: Rectangle {
+                            height: 72px;
+                            background: cf-hover.has-hover ? #1c2128 : #161b22;
+                            border-radius: 8px;
+
+                            cf-hover := TouchArea {
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 18px;
+                                    spacing: 14px;
+                                    alignment: center;
+
+                                    CheckBox {
+                                        checked: fix.enabled;
+                                        toggled => { root.toggle-conflict-fix(index, self.checked); }
+                                    }
+
+                                    VerticalLayout {
+                                        vertical-stretch: 1;
+                                        spacing: 4px;
+                                        alignment: center;
+                                        Text {
+                                            text: fix.name;
+                                            font-size: 13px;
+                                            font-weight: 500;
+                                            color: #f0f6fc;
+                                        }
+                                        Text {
+                                            text: fix.description;
+                                            font-size: 11px;
+                                            color: #484f58;
+                                            wrap: word-wrap;
+                                            overflow: elide;
+                                        }
+                                    }
+
+                                    Rectangle { horizontal-stretch: 1; }
+
+                                    Pill {
+                                        label: fix.category;
+                                    }
+                                }
+                            }
+                            animate background { duration: 120ms; }
+                        }
+                    }
+
+                    // ════════════════════════════════════════════
+                    // TAB 4: Folder Backup
+                    // ════════════════════════════════════════════
+                    if root.nav-tab == 4: VerticalLayout {
+                        vertical-stretch: 1;
+                        spacing: 14px;
+
+                        // Info card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            height: 72px;
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 4px;
+                                Text {
+                                    text: "Backup specific folders to external locations";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: #c9d1d9;
+                                }
+                                Text {
+                                    text: "Copy important folders to external drives, network shares, or cloud-synced directories.";
+                                    font-size: 12px;
+                                    color: #8b949e;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+
+                        // Add-new row
+                        Rectangle {
+                            height: 56px;
+                            background: #161b22;
+                            border-radius: 8px;
+                            HorizontalLayout {
+                                padding: 10px;
                                 spacing: 8px;
+                                alignment: center;
 
                                 fb-source := LineEdit {
-                                    placeholder-text: "Source folder path";
-                                    height: 36px;
+                                    placeholder-text: "Source folder path…";
+                                    vertical-stretch: 1;
                                 }
 
                                 fb-dest := LineEdit {
-                                    placeholder-text: "Destination folder path";
+                                    placeholder-text: "Destination folder path…";
+                                    vertical-stretch: 1;
+                                }
+
+                                PrimaryBtn {
+                                    label: "+ Add";
                                     height: 36px;
-                                }
-
-                                Rectangle {
-                                    background: #f97316;
-                                    border-radius: 6px;
-                                    Button {
-                                        text: "+ Add";
-                                        height: 36px;
-                                        clicked => {
-                                            if fb-source.text != "" && fb-dest.text != "" {
-                                                root.add-folder-backup(fb-source.text, fb-dest.text);
-                                                fb-source.text = "";
-                                                fb-dest.text = "";
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            ListView {
-                                for fb[index] in folder-backups: Rectangle {
-                                    height: 70px;
-                                    background: fb-hover.has-hover ? #161b22 : #00000000;
-
-                                    fb-hover := TouchArea {
-                                        HorizontalBox {
-                                            padding: 12px;
-                                            spacing: 12px;
-                                            alignment: center;
-
-                                            CheckBox {
-                                                checked: fb.enabled;
-                                                toggled => { root.toggle-folder-backup(index, self.checked); }
-                                            }
-
-                                            VerticalBox {
-                                                spacing: 2px;
-
-                                                Text {
-                                                    text: fb.label;
-                                                    font-size: 14px;
-                                                    font-weight: 500;
-                                                    color: #f0f6fc;
-                                                }
-
-                                                Text {
-                                                    text: fb.source-path + " -> " + fb.dest-path;
-                                                    font-size: 11px;
-                                                    color: #8b949e;
-                                                }
-                                            }
-
-                                            Rectangle {
-                                            }
-
-                                            HorizontalBox {
-                                                spacing: 8px;
-
-                                                Rectangle {
-                                                    background: #21262d;
-                                                    border-radius: 6px;
-                                                    Button {
-                                                        text: "Run";
-                                                        height: 32px;
-                                                        clicked => { root.run-folder-backup(index); }
-                                                    }
-                                                }
-
-                                                Rectangle {
-                                                    background: #21262d;
-                                                    border-radius: 6px;
-                                                    Button {
-                                                        text: "Remove";
-                                                        height: 32px;
-                                                        clicked => { root.remove-folder-backup(index); }
-                                                    }
-                                                }
-                                            }
+                                    clicked => {
+                                        if (fb-source.text != "" && fb-dest.text != "") {
+                                            root.add-folder-backup(fb-source.text, fb-dest.text);
+                                            fb-source.text = "";
+                                            fb-dest.text = "";
                                         }
                                     }
                                 }
                             }
                         }
 
-                        if root.nav-tab == 5: VerticalBox {
-                            spacing: 24px;
-
-                            Rectangle {
-                                background: #161b22;
-                                border-radius: 12px;
-
-                                VerticalBox {
-                                    padding: 24px;
-                                    spacing: 16px;
-
-                                    Text {
-                                        text: "Remote Backup";
-                                        font-size: 16px;
-                                        font-weight: 600;
-                                        color: #f0f6fc;
-                                    }
-
-                                    VerticalBox {
-                                        spacing: 8px;
-
-                                        Text {
-                                            text: "Remote Target URL or Path";
-                                            font-size: 13px;
-                                            color: #8b949e;
-                                        }
-
-                                        HorizontalBox {
-                                            spacing: 8px;
-
-                                            settings-remote-url := LineEdit {
-                                                text: root.remote-url;
-                                                placeholder-text: "https://backup.example.com/profiles or file:///mnt/backup";
-                                                height: 36px;
-                                            }
-
-                                            Rectangle {
-                                                background: #f97316;
-                                                border-radius: 6px;
-                                                Button {
-                                                    text: "Save";
-                                                    height: 36px;
-                                                    clicked => { root.save-remote-url(settings-remote-url.text); }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                background: #161b22;
-                                border-radius: 12px;
-
-                                VerticalBox {
-                                    padding: 24px;
-                                    spacing: 16px;
-
-                                    Text {
-                                        text: "Automatic Profile Saving";
-                                        font-size: 16px;
-                                        font-weight: 600;
-                                        color: #f0f6fc;
-                                    }
-
-                                    HorizontalBox {
-                                        spacing: 16px;
-                                        alignment: center;
-
-                                        CheckBox {
-                                            checked: root.auto-save-enabled;
-                                            text: "Enable auto-save";
-                                        }
-
-                                        Text {
-                                            text: "Every";
-                                            font-size: 13px;
-                                            color: #8b949e;
-                                        }
-
-                                        auto-save-hours := Slider {
-                                            minimum: 1;
-                                            maximum: 168;
-                                            value: root.auto-save-interval;
-                                        }
-
-                                        Text {
-                                            text: root.auto-save-interval + " hours";
-                                            font-size: 13px;
-                                            color: #c9d1d9;
-                                        }
-
-                                        Rectangle {
-                                            background: #f97316;
-                                            border-radius: 6px;
-                                            Button {
-                                                text: "Save";
-                                                height: 36px;
-                                                clicked => {
-                                                    root.save-auto-save-settings(root.auto-save-enabled, auto-save-hours.value);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                background: #161b22;
-                                border-radius: 12px;
-
-                                VerticalBox {
-                                    padding: 24px;
-                                    spacing: 16px;
-
-                                    Text {
-                                        text: "External Backup Location";
-                                        font-size: 16px;
-                                        font-weight: 600;
-                                        color: #f0f6fc;
-                                    }
-
-                                    HorizontalBox {
-                                        spacing: 8px;
-
-                                        settings-ext-backup := LineEdit {
-                                            text: root.external-backup-path;
-                                            placeholder-text: "/mnt/external-drive/backups";
-                                            height: 36px;
-                                        }
-
-                                        Rectangle {
-                                            background: #f97316;
-                                            border-radius: 6px;
-                                            Button {
-                                                text: "Save";
-                                                height: 36px;
-                                                clicked => { root.save-external-backup-path(settings-ext-backup.text); }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                background: #161b22;
-                                border-radius: 12px;
-
-                                VerticalBox {
-                                    padding: 24px;
-                                    spacing: 16px;
-
-                                    Text {
-                                        text: "Profile Storage";
-                                        font-size: 16px;
-                                        font-weight: 600;
-                                        color: #f0f6fc;
-                                    }
-
-                                    Text {
-                                        text: "~/.config/shapeshifter/profiles";
-                                        font-size: 13px;
-                                        color: #8b949e;
-                                    }
-
-                                    Text {
-                                        text: "Profiles are stored locally as JSON with associated config archives.";
-                                        font-size: 12px;
-                                        color: #484f58;
-                                    }
+                        // Empty state
+                        if folder-backups.length == 0: Rectangle {
+                            height: 100px;
+                            background: #161b22;
+                            border-radius: 8px;
+                            VerticalLayout {
+                                alignment: center;
+                                Text {
+                                    text: "No folder backup jobs yet. Add one above.";
+                                    font-size: 13px;
+                                    color: #484f58;
+                                    horizontal-alignment: center;
                                 }
                             }
                         }
 
-                        if root.status-message != "": Rectangle {
-                            background: root.status-type == "error" ? #f8514922 :
-                                        root.status-type == "success" ? #23863622 : #f9731622;
+                        // Folder backup list
+                        for fb[index] in folder-backups: Rectangle {
+                            height: 70px;
+                            background: fb-hover.has-hover ? #1c2128 : #161b22;
                             border-radius: 8px;
 
+                            fb-hover := TouchArea {
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 18px;
+                                    spacing: 14px;
+                                    alignment: center;
+
+                                    CheckBox {
+                                        checked: fb.enabled;
+                                        toggled => { root.toggle-folder-backup(index, self.checked); }
+                                    }
+
+                                    VerticalLayout {
+                                        vertical-stretch: 1;
+                                        spacing: 4px;
+                                        alignment: center;
+                                        Text {
+                                            text: fb.label;
+                                            font-size: 13px;
+                                            font-weight: 500;
+                                            color: #f0f6fc;
+                                        }
+                                        Text {
+                                            text: fb.source-path + "  →  " + fb.dest-path;
+                                            font-size: 11px;
+                                            color: #484f58;
+                                            overflow: elide;
+                                        }
+                                    }
+
+                                    Rectangle { horizontal-stretch: 1; }
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        SmallBtn {
+                                            label: "Run";
+                                            is-primary: true;
+                                            clicked => { root.run-folder-backup(index); }
+                                        }
+                                        SmallBtn {
+                                            label: "Remove";
+                                            clicked => { root.remove-folder-backup(index); }
+                                        }
+                                    }
+                                }
+                            }
+                            animate background { duration: 120ms; }
+                        }
+                    }
+
+                    // ════════════════════════════════════════════
+                    // TAB 5: Settings
+                    // ════════════════════════════════════════════
+                    if root.nav-tab == 5: VerticalLayout {
+                        vertical-stretch: 1;
+                        spacing: 16px;
+
+                        // Remote Backup card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text {
+                                    text: "Remote Backup";
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: #f0f6fc;
+                                }
+                                Text {
+                                    text: "Remote Target URL or Path";
+                                    font-size: 12px;
+                                    color: #8b949e;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    settings-remote-url := LineEdit {
+                                        text: root.remote-url;
+                                        placeholder-text: "https://backup.example.com/profiles  or  file:///mnt/backup";
+                                        vertical-stretch: 1;
+                                    }
+                                    PrimaryBtn {
+                                        label: "Save";
+                                        height: 36px;
+                                        clicked => { root.save-remote-url(settings-remote-url.text); }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Auto-save card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 14px;
+                                Text {
+                                    text: "Automatic Profile Saving";
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: #f0f6fc;
+                                }
+                                HorizontalLayout {
+                                    spacing: 16px;
+                                    alignment: start;
+                                    CheckBox {
+                                        checked: root.auto-save-enabled;
+                                        text: "Enable auto-save";
+                                    }
+                                    Text {
+                                        text: "Every";
+                                        font-size: 13px;
+                                        color: #8b949e;
+                                        vertical-alignment: center;
+                                    }
+                                    auto-save-hours := Slider {
+                                        minimum: 1;
+                                        maximum: 168;
+                                        value: root.auto-save-interval;
+                                        min-width: 140px;
+                                    }
+                                    Text {
+                                        text: Math.round(auto-save-hours.value) + " hours";
+                                        font-size: 13px;
+                                        color: #c9d1d9;
+                                        vertical-alignment: center;
+                                        min-width: 60px;
+                                    }
+                                    PrimaryBtn {
+                                        label: "Save";
+                                        height: 36px;
+                                        clicked => {
+                                            root.save-auto-save-settings(
+                                                root.auto-save-enabled,
+                                                Math.round(auto-save-hours.value)
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // External Backup Location card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 12px;
+                                Text {
+                                    text: "External Backup Location";
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: #f0f6fc;
+                                }
+                                Text {
+                                    text: "Default destination for folder backup jobs";
+                                    font-size: 12px;
+                                    color: #8b949e;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    settings-ext-backup := LineEdit {
+                                        text: root.external-backup-path;
+                                        placeholder-text: "/mnt/external-drive/backups";
+                                        vertical-stretch: 1;
+                                    }
+                                    PrimaryBtn {
+                                        label: "Save";
+                                        height: 36px;
+                                        clicked => { root.save-external-backup-path(settings-ext-backup.text); }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Profile Storage card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 8px;
+                                Text {
+                                    text: "Profile Storage";
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: #f0f6fc;
+                                }
+                                Text {
+                                    text: "~/.config/shapeshifter/profiles";
+                                    font-size: 13px;
+                                    color: #8b949e;
+                                    font-weight: 500;
+                                }
+                                Text {
+                                    text: "Profiles are stored locally as JSON with associated config archives.";
+                                    font-size: 12px;
+                                    color: #484f58;
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Status Banner ──────────────────────────────────────
+                    if root.status-message != "": Rectangle {
+                        min-height: 44px;
+                        background: root.status-type == "error"   ? #f8514918 :
+                                    root.status-type == "success" ? #23863618 : #f9731618;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: root.status-type == "error"   ? #f8514944 :
+                                      root.status-type == "success" ? #23863644 : #f9731644;
+
+                        HorizontalLayout {
+                            padding: 12px;
+                            spacing: 10px;
+                            alignment: center;
                             Text {
                                 text: root.status-message;
-                                color: root.status-type == "error" ? #f85149 :
+                                color: root.status-type == "error"   ? #f85149 :
                                        root.status-type == "success" ? #3fb950 : #f97316;
+                                font-size: 13px;
                                 wrap: word-wrap;
+                                vertical-alignment: center;
                             }
                         }
                     }
@@ -1129,60 +1350,53 @@ export component AppWindow inherits Window {
         }
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Create Profile
+    // ════════════════════════════════════════════════════════════════════════
     if root.show-create-dialog: Rectangle {
         width: 100%;
         height: 100%;
-        background: #000000cc;
+        background: #00000099;
 
-        create-dialog-bg := Rectangle {
+        Rectangle {
             width: 480px;
-            height: 320px;
             background: #161b22;
             border-radius: 12px;
-            x: (parent.width - self.width) / 2;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
             y: (parent.height - self.height) / 2;
 
-            VerticalBox {
-                padding: 24px;
+            VerticalLayout {
+                padding: 28px;
                 spacing: 20px;
 
-                HorizontalBox {
+                // Title row
+                HorizontalLayout {
                     Text {
                         text: "Create New Profile";
                         font-size: 18px;
-                        font-weight: 600;
+                        font-weight: 700;
                         color: #f0f6fc;
+                        vertical-alignment: center;
                     }
-
-                    Rectangle {
-                    }
-
-                    Rectangle {
-                        background: #21262d;
-                        border-radius: 6px;
-                        Button {
-                            text: "X";
-                            width: 32px;
-                            height: 32px;
-                            clicked => { root.show-create-dialog = false; }
-                        }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => { root.show-create-dialog = false; }
                     }
                 }
 
-                Rectangle {
-                    height: 1px;
-                    background: #30363d;
-                }
+                Rectangle { height: 1px; background: #30363d; }
 
-                VerticalBox {
+                // Name field
+                VerticalLayout {
                     spacing: 8px;
-
                     Text {
                         text: "Profile Name";
-                        font-size: 13px;
+                        font-size: 12px;
                         color: #8b949e;
                     }
-
                     create-profile-name := LineEdit {
                         placeholder-text: "e.g., My GNOME Setup";
                         height: 36px;
@@ -1193,40 +1407,25 @@ export component AppWindow inherits Window {
                     text: "Also save to remote backup target";
                 }
 
-                HorizontalBox {
+                HorizontalLayout {
+                    alignment: end;
                     spacing: 8px;
-
-                    Rectangle {
-                    }
-
-                    HorizontalBox {
-                        spacing: 8px;
-
-                        Rectangle {
-                            background: #21262d;
-                            border-radius: 6px;
-                            Button {
-                                text: "Cancel";
-                                height: 36px;
-                                clicked => {
-                                    root.show-create-dialog = false;
-                                    create-profile-name.text = "";
-                                }
-                            }
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => {
+                            root.show-create-dialog = false;
+                            create-profile-name.text = "";
                         }
-
-                        Rectangle {
-                            background: #f97316;
-                            border-radius: 6px;
-                            Button {
-                                text: "Create Profile";
-                                height: 36px;
-                                clicked => {
-                                    root.create-profile(create-profile-name.text, create-save-remote.checked);
-                                    root.show-create-dialog = false;
-                                    create-profile-name.text = "";
-                                }
-                            }
+                    }
+                    PrimaryBtn {
+                        label: "Create Profile";
+                        height: 36px;
+                        enabled-btn: create-profile-name.text != "";
+                        clicked => {
+                            root.create-profile(create-profile-name.text, create-save-remote.checked);
+                            root.show-create-dialog = false;
+                            create-profile-name.text = "";
                         }
                     }
                 }
@@ -1234,100 +1433,76 @@ export component AppWindow inherits Window {
         }
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Import Profile
+    // ════════════════════════════════════════════════════════════════════════
     if root.show-import-dialog: Rectangle {
         width: 100%;
         height: 100%;
-        background: #000000cc;
+        background: #00000099;
 
-        import-dialog-bg := Rectangle {
+        Rectangle {
             width: 480px;
-            height: 240px;
             background: #161b22;
             border-radius: 12px;
-            x: (parent.width - self.width) / 2;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
             y: (parent.height - self.height) / 2;
 
-            VerticalBox {
-                padding: 24px;
+            VerticalLayout {
+                padding: 28px;
                 spacing: 20px;
 
-                HorizontalBox {
+                HorizontalLayout {
                     Text {
                         text: "Import Profile";
                         font-size: 18px;
-                        font-weight: 600;
+                        font-weight: 700;
                         color: #f0f6fc;
+                        vertical-alignment: center;
                     }
-
-                    Rectangle {
-                    }
-
-                    Rectangle {
-                        background: #21262d;
-                        border-radius: 6px;
-                        Button {
-                            text: "X";
-                            width: 32px;
-                            height: 32px;
-                            clicked => { root.show-import-dialog = false; }
-                        }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => { root.show-import-dialog = false; }
                     }
                 }
 
-                Rectangle {
-                    height: 1px;
-                    background: #30363d;
-                }
+                Rectangle { height: 1px; background: #30363d; }
 
-                VerticalBox {
+                VerticalLayout {
                     spacing: 8px;
-
                     Text {
                         text: "Profile Archive Path (.tar.gz)";
-                        font-size: 13px;
+                        font-size: 12px;
                         color: #8b949e;
                     }
-
                     import-path := LineEdit {
                         placeholder-text: "/path/to/profile.tar.gz";
                         height: 36px;
                     }
                 }
 
-                HorizontalBox {
+                HorizontalLayout {
+                    alignment: end;
                     spacing: 8px;
-
-                    Rectangle {
-                    }
-
-                    HorizontalBox {
-                        spacing: 8px;
-
-                        Rectangle {
-                            background: #21262d;
-                            border-radius: 6px;
-                            Button {
-                                text: "Cancel";
-                                height: 36px;
-                                clicked => {
-                                    root.show-import-dialog = false;
-                                    import-path.text = "";
-                                }
-                            }
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => {
+                            root.show-import-dialog = false;
+                            import-path.text = "";
                         }
-
-                        Rectangle {
-                            background: #f97316;
-                            border-radius: 6px;
-                            Button {
-                                text: "Import";
-                                height: 36px;
-                                clicked => {
-                                    root.import-profile(import-path.text);
-                                    root.show-import-dialog = false;
-                                    import-path.text = "";
-                                }
-                            }
+                    }
+                    PrimaryBtn {
+                        label: "Import";
+                        height: 36px;
+                        enabled-btn: import-path.text != "";
+                        clicked => {
+                            root.import-profile(import-path.text);
+                            root.show-import-dialog = false;
+                            import-path.text = "";
                         }
                     }
                 }
@@ -1335,60 +1510,51 @@ export component AppWindow inherits Window {
         }
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Edit Profile
+    // ════════════════════════════════════════════════════════════════════════
     if root.show-edit-dialog: Rectangle {
         width: 100%;
         height: 100%;
-        background: #000000cc;
+        background: #00000099;
 
-        edit-dialog-bg := Rectangle {
+        Rectangle {
             width: 480px;
-            height: 320px;
             background: #161b22;
             border-radius: 12px;
-            x: (parent.width - self.width) / 2;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
             y: (parent.height - self.height) / 2;
 
-            VerticalBox {
-                padding: 24px;
+            VerticalLayout {
+                padding: 28px;
                 spacing: 20px;
 
-                HorizontalBox {
+                HorizontalLayout {
                     Text {
                         text: "Edit Profile";
                         font-size: 18px;
-                        font-weight: 600;
+                        font-weight: 700;
                         color: #f0f6fc;
+                        vertical-alignment: center;
                     }
-
-                    Rectangle {
-                    }
-
-                    Rectangle {
-                        background: #21262d;
-                        border-radius: 6px;
-                        Button {
-                            text: "X";
-                            width: 32px;
-                            height: 32px;
-                            clicked => { root.show-edit-dialog = false; }
-                        }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => { root.show-edit-dialog = false; }
                     }
                 }
 
-                Rectangle {
-                    height: 1px;
-                    background: #30363d;
-                }
+                Rectangle { height: 1px; background: #30363d; }
 
-                VerticalBox {
+                VerticalLayout {
                     spacing: 8px;
-
                     Text {
                         text: "Profile Name";
-                        font-size: 13px;
+                        font-size: 12px;
                         color: #8b949e;
                     }
-
                     edit-profile-name-input := LineEdit {
                         text: root.edit-profile-name;
                         height: 36px;
@@ -1400,35 +1566,24 @@ export component AppWindow inherits Window {
                     checked: root.edit-profile-remote;
                 }
 
-                HorizontalBox {
+                HorizontalLayout {
+                    alignment: end;
                     spacing: 8px;
-
-                    Rectangle {
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => { root.show-edit-dialog = false; }
                     }
-
-                    HorizontalBox {
-                        spacing: 8px;
-
-                        Rectangle {
-                            background: #21262d;
-                            border-radius: 6px;
-                            Button {
-                                text: "Cancel";
-                                height: 36px;
-                                clicked => { root.show-edit-dialog = false; }
-                            }
-                        }
-
-                        Rectangle {
-                            background: #f97316;
-                            border-radius: 6px;
-                            Button {
-                                text: "Save Changes";
-                                height: 36px;
-                                clicked => {
-                                    root.save-edit-profile(root.edit-profile-name, edit-profile-name-input.text, edit-save-remote.checked);
-                                }
-                            }
+                    PrimaryBtn {
+                        label: "Save Changes";
+                        height: 36px;
+                        enabled-btn: edit-profile-name-input.text != "";
+                        clicked => {
+                            root.save-edit-profile(
+                                root.edit-profile-name,
+                                edit-profile-name-input.text,
+                                edit-save-remote.checked
+                            );
                         }
                     }
                 }

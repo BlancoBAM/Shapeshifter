@@ -1,14 +1,20 @@
 # Build results
 target/
 
-# IDE
+# IDE / Editor
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
+Thumbs.db
+
+# AI / Dev tools
+.kilocode/
+.gemini/
 
 # Rust
 Cargo.lock

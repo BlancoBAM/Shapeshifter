@@ -1,0 +1,216 @@
+name: Build and Release Shapeshifter
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential \
+            libfontconfig1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxdamage-dev \
+            libxcomposite-dev \
+            libgles2-mesa-dev \
+            libegl1-mesa-dev \
+            dpkg-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run tests
+        run: cargo test --release
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Verify binary
+        run: |
+          file target/release/shapeshifter
+          ls -lh target/release/shapeshifter
+
+  package:
+    name: Package .deb
+    runs-on: ubuntu-24.04
+    needs: build
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential \
+            libfontconfig1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxdamage-dev \
+            libxcomposite-dev \
+            libgles2-mesa-dev \
+            libegl1-mesa-dev \
+            dpkg-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Extract version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Build debian package
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          PKG_DIR="debian/shapeshifter"
+
+          # Put the freshly built binary into the package tree
+          cp target/release/shapeshifter "${PKG_DIR}/usr/bin/shapeshifter"
+          chmod 755 "${PKG_DIR}/usr/bin/shapeshifter"
+
+          # Sync desktop file
+          cp shapeshifter.desktop "${PKG_DIR}/usr/share/applications/shapeshifter.desktop"
+
+          # Update control version dynamically
+          sed -i "s/^Version:.*/Version: ${VERSION}/" "${PKG_DIR}/DEBIAN/control"
+
+          # Build the .deb with root-owner-group flag to suppress warnings
+          mkdir -p releases
+          dpkg-deb --root-owner-group --build "${PKG_DIR}" \
+            "releases/shapeshifter_${VERSION}_amd64.deb"
+
+          echo "Built releases/shapeshifter_${VERSION}_amd64.deb"
+          ls -lh releases/
+
+      - name: Verify deb package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          dpkg-deb --info "releases/shapeshifter_${VERSION}_amd64.deb"
+          dpkg-deb --contents "releases/shapeshifter_${VERSION}_amd64.deb"
+
+      - name: Upload .deb as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shapeshifter-deb-${{ steps.version.outputs.version }}
+          path: releases/shapeshifter_${{ steps.version.outputs.version }}_amd64.deb
+          retention-days: 30
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Download deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shapeshifter-deb-${{ steps.version.outputs.version }}
+          path: releases/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Shapeshifter v${{ steps.version.outputs.version }}"
+          body: |
+            ## Shapeshifter v${{ steps.version.outputs.version }}
+
+            Desktop Environment & Profile Manager for Lilith Linux.
+
+            ### Installation
+
+            Download and install the `.deb` package:
+
+            ```bash
+            sudo dpkg -i shapeshifter_${{ steps.version.outputs.version }}_amd64.deb
+            sudo apt-get install -f  # fix any dependency issues
+            ```
+
+            ### Features
+            - Create, apply, export and import desktop environment profiles
+            - Switch between installed desktop environments (X11 + Wayland)
+            - Manage backup items (themes, icons, fonts, dotfiles, extensions)
+            - DE conflict prevention (theme isolation, menu cleanup)
+            - Folder backup with timestamped copies
+            - Automatic scheduled profile saving
+          files: |
+            releases/shapeshifter_${{ steps.version.outputs.version }}_amd64.deb
+          draft: false
+          prerelease: false
