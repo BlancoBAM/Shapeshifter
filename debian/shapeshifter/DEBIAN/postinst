@@ -11,8 +11,12 @@ if command -v gtk-update-icon-cache &>/dev/null; then
     gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 fi
 
+# Install XDG autostart entry for session restore
+mkdir -p /etc/xdg/autostart
+cp /usr/share/applications/shapeshifter-restore.desktop /etc/xdg/autostart/shapeshifter-restore.desktop 2>/dev/null || true
+
 # Create config directory
 mkdir -p /etc/shapeshifter
 
-echo "Shapeshifter installed successfully."
+echo "Shapeshifter v2 installed successfully."
 echo "You can launch it from your application menu or run: shapeshifter"

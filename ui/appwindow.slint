@@ -1,54 +1,37 @@
-import { LineEdit, CheckBox, Slider } from "std-widgets.slint";
+import { LineEdit, ScrollView } from "std-widgets.slint";
 
 // ─── Data Structures ───────────────────────────────────────────────────────────
 
-export struct ProfileData {
+export struct DeStoreItem {
     name: string,
+    meta-package: string,
+    is-installed: bool,
+    is-installing: bool,
+    install-status: string,
+}
+
+export struct ProfileCardData {
+    name: string,
+    de: string,
+    thumbnail-path: string,
     created: string,
-    desktop: string,
-    is_remote: bool,
-    package_count: int,
-    config_count: int,
+    remote-path: string,
 }
 
-export struct DesktopEnvironmentData {
-    name: string,
-    is_current: bool,
-    session_id: string,
-}
-
-export struct BackupItemData {
-    name: string,
-    path: string,
-    enabled: bool,
-    category: string,
-    size_estimate: string,
-}
-
-export struct ConflictFixData {
-    name: string,
-    description: string,
-    enabled: bool,
-    category: string,
-}
-
-export struct FolderBackupData {
-    label: string,
-    source_path: string,
-    dest_path: string,
-    enabled: bool,
-}
-
-export struct ScheduledSaveData {
-    label: string,
-    interval: string,
-    enabled: bool,
-    last_run: string,
+export struct DisplayItem {
+    item-type: int,
+    header-text: string,
+    grid-row: int,
+    grid-col: int,
+    profile-name: string,
+    profile-de: string,
+    profile-thumbnail: string,
+    profile-created: string,
+    profile-index: int,
 }
 
 // ─── Reusable Components ───────────────────────────────────────────────────────
 
-// Primary action button (orange)
 component PrimaryBtn inherits Rectangle {
     in property <string> label;
     in property <bool> enabled-btn: true;
@@ -83,7 +66,6 @@ component PrimaryBtn inherits Rectangle {
     animate background { duration: 100ms; }
 }
 
-// Secondary/neutral button (dark grey)
 component SecondaryBtn inherits Rectangle {
     in property <string> label;
     callback clicked;
@@ -113,7 +95,6 @@ component SecondaryBtn inherits Rectangle {
     animate background { duration: 100ms; }
 }
 
-// Small action button (for inline list items)
 component SmallBtn inherits Rectangle {
     in property <string> label;
     in property <bool> is-primary: false;
@@ -146,7 +127,6 @@ component SmallBtn inherits Rectangle {
     animate background { duration: 100ms; }
 }
 
-// Pill badge for category labels
 component Pill inherits Rectangle {
     in property <string> label;
     in property <color> pill-bg: #21262d;
@@ -173,7 +153,7 @@ component Pill inherits Rectangle {
 // ─── Main Window ───────────────────────────────────────────────────────────────
 
 export component AppWindow inherits Window {
-    title: "Shapeshifter — Desktop Environment & Profile Manager";
+    title: "Shapeshifter — Desktop Environment Store & Profile Manager";
     background: #0d1117;
     preferred-width: 1120px;
     preferred-height: 760px;
@@ -181,52 +161,38 @@ export component AppWindow inherits Window {
     min-height: 600px;
 
     // ── Bound properties ────────────────────────────────────────────────────
-    in-out property <string>  remote-url;
-    in-out property <[ProfileData]> profiles;
-    in-out property <[DesktopEnvironmentData]> available-desktops;
+    in-out property <[DeStoreItem]> de-store-items;
+    in-out property <[DisplayItem]> display-items;
     in-out property <string>  status-message: "";
     in-out property <string>  status-type: "info";
-    in-out property <[BackupItemData]> backup-items;
-    in-out property <[ConflictFixData]> conflict-fixes;
-    in-out property <[FolderBackupData]> folder-backups;
-    in-out property <[ScheduledSaveData]> scheduled-saves;
     in-out property <string>  current-de;
     in-out property <string>  current-user;
-    in-out property <bool>    auto-save-enabled: false;
-    in-out property <int>     auto-save-interval: 24;
-    in-out property <string>  external-backup-path;
     in-out property <string>  application-version;
-    in-out property <string>  edit-profile-name;
-    in-out property <bool>    edit-profile-remote;
+    in-out property <string>  last-remote-path;
+
+    // ── Dialog state ─────────────────────────────────────────────────────────
+    in-out property <bool>   show-save-dialog: false;
+    in-out property <bool>   show-install-confirm: false;
+    in-out property <bool>   show-remove-confirm: false;
+    in-out property <bool>   show-restore-confirm: false;
+    in-out property <bool>   show-delete-confirm: false;
+    in-out property <string> confirm-title: "";
+    in-out property <string> confirm-message: "";
+    in-out property <int>    confirm-index: -1;
+    in-out property <string> save-de-name: "";
 
     // ── Callbacks ────────────────────────────────────────────────────────────
-    callback save-remote-url(string);
-    callback create-profile(string, bool);
-    callback apply-profile(int);
+    callback install-de(int);
+    callback remove-de(int);
+    callback save-profile(string, string, string);
+    callback restore-profile(int);
     callback delete-profile(int);
-    callback export-profile(int);
-    callback import-profile(string);
-    callback switch-desktop(int);
-    callback toggle-backup-item(int, bool);
-    callback toggle-conflict-fix(int, bool);
-    callback add-folder-backup(string, string);
-    callback remove-folder-backup(int);
-    callback toggle-folder-backup(int, bool);
-    callback run-folder-backup(int);
-    callback toggle-scheduled-save(int, bool);
-    callback run-now-scheduled-save(int);
-    callback save-auto-save-settings(bool, int);
-    callback save-external-backup-path(string);
-    callback apply-conflict-fixes();
+    callback browse-thumbnail();
     callback refresh-all();
-    callback edit-profile(int);
-    callback save-edit-profile(string, string, bool);
-
-    // ── Navigation state ─────────────────────────────────────────────────────
-    in-out property <int>  nav-tab: 0;
-    in-out property <bool> show-create-dialog: false;
-    in-out property <bool> show-import-dialog: false;
-    in-out property <bool> show-edit-dialog:   false;
+    callback confirm-install-de();
+    callback confirm-remove-de();
+    callback confirm-restore-profile();
+    callback confirm-delete-profile();
 
     // ════════════════════════════════════════════════════════════════════════
     // Main Layout: Sidebar | Content
@@ -260,7 +226,7 @@ export component AppWindow inherits Window {
                         letter-spacing: 1.5px;
                     }
                     Text {
-                        text: "Desktop & Profile Manager";
+                        text: "DE Store & Profile Manager";
                         font-size: 11px;
                         color: #8b949e;
                         wrap: no-wrap;
@@ -277,7 +243,7 @@ export component AppWindow inherits Window {
                 Rectangle { height: 8px; }
 
                 // ── Nav Items ───────────────────────────────────────────────
-                // 0 · Profiles
+                // 0 · DE Store
                 nav-item-0 := Rectangle {
                     height: 42px;
                     horizontal-stretch: 1;
@@ -285,7 +251,6 @@ export component AppWindow inherits Window {
                         ? #f9731614
                         : (nav-touch-0.has-hover ? #ffffff0a : transparent);
 
-                    // Left accent bar for active item
                     if root.nav-tab == 0: Rectangle {
                         width: 3px;
                         height: 28px;
@@ -303,7 +268,7 @@ export component AppWindow inherits Window {
                             spacing: 10px;
                             alignment: start;
                             Text {
-                                text: "Profiles";
+                                text: "DE Store";
                                 font-size: 14px;
                                 font-weight: root.nav-tab == 0 ? 700 : 500;
                                 color: root.nav-tab == 0 ? #f97316 : #8b949e;
@@ -314,7 +279,7 @@ export component AppWindow inherits Window {
                     animate background { duration: 120ms; }
                 }
 
-                // 1 · Desktop Switcher
+                // 1 · Profiles
                 nav-item-1 := Rectangle {
                     height: 42px;
                     horizontal-stretch: 1;
@@ -338,7 +303,7 @@ export component AppWindow inherits Window {
                             padding-right: 16px;
                             alignment: start;
                             Text {
-                                text: "Desktop Switcher";
+                                text: "Profiles";
                                 font-size: 14px;
                                 font-weight: root.nav-tab == 1 ? 700 : 500;
                                 color: root.nav-tab == 1 ? #f97316 : #8b949e;
@@ -349,155 +314,8 @@ export component AppWindow inherits Window {
                     animate background { duration: 120ms; }
                 }
 
-                // 2 · Backup Items
-                nav-item-2 := Rectangle {
-                    height: 42px;
-                    horizontal-stretch: 1;
-                    background: root.nav-tab == 2
-                        ? #f9731614
-                        : (nav-touch-2.has-hover ? #ffffff0a : transparent);
-
-                    if root.nav-tab == 2: Rectangle {
-                        width: 3px;
-                        height: 28px;
-                        background: #f97316;
-                        border-radius: 2px;
-                        x: 0px;
-                        y: (parent.height - self.height) / 2;
-                    }
-
-                    nav-touch-2 := TouchArea {
-                        clicked => { root.nav-tab = 2; }
-                        HorizontalLayout {
-                            padding-left: 20px;
-                            padding-right: 16px;
-                            alignment: start;
-                            Text {
-                                text: "Backup Items";
-                                font-size: 14px;
-                                font-weight: root.nav-tab == 2 ? 700 : 500;
-                                color: root.nav-tab == 2 ? #f97316 : #8b949e;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-                    animate background { duration: 120ms; }
-                }
-
-                // 3 · DE Conflict Fixes
-                nav-item-3 := Rectangle {
-                    height: 42px;
-                    horizontal-stretch: 1;
-                    background: root.nav-tab == 3
-                        ? #f9731614
-                        : (nav-touch-3.has-hover ? #ffffff0a : transparent);
-
-                    if root.nav-tab == 3: Rectangle {
-                        width: 3px;
-                        height: 28px;
-                        background: #f97316;
-                        border-radius: 2px;
-                        x: 0px;
-                        y: (parent.height - self.height) / 2;
-                    }
-
-                    nav-touch-3 := TouchArea {
-                        clicked => { root.nav-tab = 3; }
-                        HorizontalLayout {
-                            padding-left: 20px;
-                            padding-right: 16px;
-                            alignment: start;
-                            Text {
-                                text: "DE Conflict Fixes";
-                                font-size: 14px;
-                                font-weight: root.nav-tab == 3 ? 700 : 500;
-                                color: root.nav-tab == 3 ? #f97316 : #8b949e;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-                    animate background { duration: 120ms; }
-                }
-
-                // 4 · Folder Backup
-                nav-item-4 := Rectangle {
-                    height: 42px;
-                    horizontal-stretch: 1;
-                    background: root.nav-tab == 4
-                        ? #f9731614
-                        : (nav-touch-4.has-hover ? #ffffff0a : transparent);
-
-                    if root.nav-tab == 4: Rectangle {
-                        width: 3px;
-                        height: 28px;
-                        background: #f97316;
-                        border-radius: 2px;
-                        x: 0px;
-                        y: (parent.height - self.height) / 2;
-                    }
-
-                    nav-touch-4 := TouchArea {
-                        clicked => { root.nav-tab = 4; }
-                        HorizontalLayout {
-                            padding-left: 20px;
-                            padding-right: 16px;
-                            alignment: start;
-                            Text {
-                                text: "Folder Backup";
-                                font-size: 14px;
-                                font-weight: root.nav-tab == 4 ? 700 : 500;
-                                color: root.nav-tab == 4 ? #f97316 : #8b949e;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-                    animate background { duration: 120ms; }
-                }
-
                 // Spacer
                 Rectangle { vertical-stretch: 1; }
-
-                // Divider
-                Rectangle {
-                    height: 1px;
-                    background: #30363d;
-                    horizontal-stretch: 1;
-                }
-
-                // 5 · Settings
-                nav-item-5 := Rectangle {
-                    height: 42px;
-                    horizontal-stretch: 1;
-                    background: root.nav-tab == 5
-                        ? #f9731614
-                        : (nav-touch-5.has-hover ? #ffffff0a : transparent);
-
-                    if root.nav-tab == 5: Rectangle {
-                        width: 3px;
-                        height: 28px;
-                        background: #f97316;
-                        border-radius: 2px;
-                        x: 0px;
-                        y: (parent.height - self.height) / 2;
-                    }
-
-                    nav-touch-5 := TouchArea {
-                        clicked => { root.nav-tab = 5; }
-                        HorizontalLayout {
-                            padding-left: 20px;
-                            padding-right: 16px;
-                            alignment: start;
-                            Text {
-                                text: "Settings";
-                                font-size: 14px;
-                                font-weight: root.nav-tab == 5 ? 700 : 500;
-                                color: root.nav-tab == 5 ? #f97316 : #8b949e;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-                    animate background { duration: 120ms; }
-                }
 
                 // Divider
                 Rectangle {
@@ -564,11 +382,8 @@ export component AppWindow inherits Window {
                     alignment: center;
 
                     Text {
-                        text: root.nav-tab == 0 ? "Profiles" :
-                              root.nav-tab == 1 ? "Desktop Environments" :
-                              root.nav-tab == 2 ? "Backup Items" :
-                              root.nav-tab == 3 ? "DE Conflict Prevention" :
-                              root.nav-tab == 4 ? "Folder Backup" : "Settings";
+                        text: root.nav-tab == 0 ? "DE Store" :
+                              root.nav-tab == 1 ? "Profiles" : "";
                         font-size: 20px;
                         font-weight: 700;
                         color: #f0f6fc;
@@ -578,32 +393,23 @@ export component AppWindow inherits Window {
                     Rectangle { horizontal-stretch: 1; }
 
                     // Profiles header buttons
-                    if root.nav-tab == 0: HorizontalLayout {
+                    if root.nav-tab == 1: HorizontalLayout {
                         spacing: 8px;
-                        SecondaryBtn {
-                            label: "Import";
-                            height: 36px;
-                            clicked => { root.show-import-dialog = true; }
-                        }
                         PrimaryBtn {
-                            label: "+ New Profile";
+                            label: "+ Save Current";
                             height: 36px;
-                            clicked => { root.show-create-dialog = true; }
+                            clicked => {
+                                root.save-de-name = root.current-de;
+                                root.show-save-dialog = true;
+                            }
                         }
                     }
 
-                    // Desktop Switcher refresh button
-                    if root.nav-tab == 1: SecondaryBtn {
+                    // DE Store refresh button
+                    if root.nav-tab == 0: SecondaryBtn {
                         label: "⟳  Refresh";
                         height: 36px;
                         clicked => { root.refresh-all(); }
-                    }
-
-                    // Conflict fixes apply button
-                    if root.nav-tab == 3: PrimaryBtn {
-                        label: "Apply Selected Fixes";
-                        height: 36px;
-                        clicked => { root.apply-conflict-fixes(); }
                     }
                 }
             }
@@ -620,138 +426,120 @@ export component AppWindow inherits Window {
                 background: #0d1117;
                 clip: true;
 
-                VerticalLayout {
-                    vertical-stretch: 1;
+                ScrollView {
+                    width: 100%;
+                    height: 100%;
+
+                    VerticalLayout {
                     padding: 24px;
                     spacing: 16px;
 
                     // ════════════════════════════════════════════
-                    // TAB 0: Profiles
+                    // TAB 0: DE Store
                     // ════════════════════════════════════════════
                     if root.nav-tab == 0: VerticalLayout {
-                        vertical-stretch: 1;
-                        spacing: 14px;
+                        spacing: 10px;
 
-                        // Empty state
-                        if profiles.length == 0: Rectangle {
-                            height: 280px;
+                        // Info card
+                        Rectangle {
                             background: #161b22;
-                            border-radius: 12px;
-
+                            border-radius: 10px;
+                            height: 64px;
                             VerticalLayout {
-                                alignment: center;
-                                spacing: 14px;
-                                padding: 24px;
-
+                                padding-top: 14px;
+                                padding-bottom: 14px;
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                spacing: 4px;
                                 Text {
-                                    text: "No profiles yet";
-                                    font-size: 18px;
+                                    text: "Desktop Environment Store";
+                                    font-size: 14px;
                                     font-weight: 600;
-                                    color: #8b949e;
-                                    horizontal-alignment: center;
+                                    color: #c9d1d9;
                                 }
                                 Text {
-                                    text: "Create a profile to capture your current desktop configuration,\ninstalled packages, and dotfiles.";
-                                    font-size: 13px;
-                                    color: #484f58;
-                                    horizontal-alignment: center;
-                                    wrap: word-wrap;
-                                }
-                                HorizontalLayout {
-                                    alignment: center;
-                                    PrimaryBtn {
-                                        label: "Create Your First Profile";
-                                        height: 40px;
-                                        clicked => { root.show-create-dialog = true; }
-                                    }
+                                    text: "Browse and install Lilith Linux desktop environments. Click Install to add a new DE.";
+                                    font-size: 12px;
+                                    color: #8b949e;
                                 }
                             }
                         }
 
-                        // Profile list
-                        for profile[index] in profiles: Rectangle {
-                            height: 88px;
-                            background: profile-hover.has-hover ? #1c2128 : #161b22;
+                        // DE list
+                        for de[index] in de-store-items: Rectangle {
+                            height: 58px;
+                            background: de-hover.has-hover ? #1c2128 : #161b22;
                             border-radius: 10px;
 
-                            profile-hover := TouchArea {
+                            de-hover := TouchArea {
                                 HorizontalLayout {
-                                    padding: 18px;
-                                    spacing: 14px;
+                                    padding-top: 14px;
+                                    padding-bottom: 14px;
+                                    padding-left: 18px;
+                                    padding-right: 18px;
+                                    spacing: 12px;
                                     alignment: center;
+
+                                    // Install spinner
+                                    if de.is-installing: Rectangle {
+                                        width: 20px;
+                                        height: 20px;
+                                        border-radius: 10px;
+                                        background: #f97316;
+                                    }
 
                                     VerticalLayout {
                                         vertical-stretch: 1;
-                                        spacing: 6px;
+                                        spacing: 2px;
                                         alignment: center;
 
-                                        HorizontalLayout {
-                                            spacing: 8px;
-                                            alignment: start;
-
-                                            Text {
-                                                text: profile.name;
-                                                font-size: 15px;
-                                                font-weight: 600;
-                                                color: #f0f6fc;
-                                                vertical-alignment: center;
-                                                overflow: elide;
-                                            }
-
-                                            if profile.is-remote: Pill {
-                                                label: "REMOTE";
-                                                pill-bg: #f9731622;
-                                                pill-color: #f97316;
-                                            }
+                                        Text {
+                                            text: de.name;
+                                            font-size: 14px;
+                                            font-weight: 600;
+                                            color: #f0f6fc;
+                                            vertical-alignment: center;
                                         }
 
-                                        HorizontalLayout {
-                                            spacing: 18px;
-                                            alignment: start;
-                                            Text {
-                                                text: "Created " + profile.created;
-                                                font-size: 11px;
-                                                color: #484f58;
-                                            }
-                                            Text {
-                                                text: "DE: " + profile.desktop;
-                                                font-size: 11px;
-                                                color: #484f58;
-                                            }
-                                            Text {
-                                                text: profile.package-count + " pkgs";
-                                                font-size: 11px;
-                                                color: #484f58;
-                                            }
-                                            Text {
-                                                text: profile.config-count + " configs";
-                                                font-size: 11px;
-                                                color: #484f58;
-                                            }
+                                        if de.is-installing: Text {
+                                            text: de.install-status;
+                                            font-size: 11px;
+                                            color: #f97316;
                                         }
                                     }
 
                                     Rectangle { horizontal-stretch: 1; }
 
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        alignment: end;
-                                        SmallBtn {
-                                            label: "Edit";
-                                            clicked => { root.edit-profile(index); }
+                                    if de.is-installing: Pill {
+                                        label: "Installing...";
+                                        pill-bg: #f9731622;
+                                        pill-color: #f97316;
+                                    }
+
+                                    if !de.is-installing && de.is-installed: Pill {
+                                        label: "Installed";
+                                        pill-bg: #23863633;
+                                        pill-color: #3fb950;
+                                    }
+
+                                    if !de.is-installing && de.is-installed: SmallBtn {
+                                        label: "Remove";
+                                        clicked => {
+                                            root.confirm-index = index;
+                                            root.confirm-title = "Remove " + de.name + "?";
+                                            root.confirm-message = "This will remove " + de.name + ". Saved profiles will be preserved on disk.";
+                                            root.show-remove-confirm = true;
                                         }
-                                        SmallBtn {
-                                            label: "Export";
-                                            clicked => { root.export-profile(index); }
-                                        }
-                                        SmallBtn {
-                                            label: "Delete";
-                                            clicked => { root.delete-profile(index); }
-                                        }
-                                        SmallBtn {
-                                            label: "Apply";
-                                            is-primary: true;
-                                            clicked => { root.apply-profile(index); }
+                                    }
+
+                                    if !de.is-installing && !de.is-installed: SmallBtn {
+                                        label: "Install";
+                                        is-primary: true;
+                                        clicked => {
+                                            root.confirm-index = index;
+                                            root.confirm-title = "Install " + de.name + "?";
+                                            root.confirm-message = "Install " + de.name + " desktop environment via pkexec apt.";
+                                            root.show-install-confirm = true;
                                         }
                                     }
                                 }
@@ -761,563 +549,176 @@ export component AppWindow inherits Window {
                     }
 
                     // ════════════════════════════════════════════
-                    // TAB 1: Desktop Switcher
+                    // TAB 1: Profiles
                     // ════════════════════════════════════════════
                     if root.nav-tab == 1: VerticalLayout {
-                        vertical-stretch: 1;
-                        spacing: 14px;
+                        spacing: 10px;
 
                         // Info card
                         Rectangle {
                             background: #161b22;
                             border-radius: 10px;
-                            height: 72px;
+                            height: 56px;
                             VerticalLayout {
-                                padding: 16px;
+                                padding-top: 12px;
+                                padding-bottom: 12px;
+                                padding-left: 18px;
+                                padding-right: 18px;
                                 spacing: 4px;
                                 Text {
-                                    text: "Switch between installed desktop environments";
-                                    font-size: 13px;
+                                    text: "Saved Desktop Profiles";
+                                    font-size: 14px;
                                     font-weight: 600;
                                     color: #c9d1d9;
                                 }
                                 Text {
-                                    text: "Settings and packages are preserved. Switching requires a logout to take full effect.";
+                                    text: "Save and restore complete desktop configurations. Profiles are grouped by desktop environment.";
                                     font-size: 12px;
                                     color: #8b949e;
-                                    wrap: word-wrap;
-                                    overflow: elide;
                                 }
                             }
                         }
 
                         // Empty state
-                        if available-desktops.length == 0: Rectangle {
+                        if display-items.length == 0: Rectangle {
                             height: 160px;
                             background: #161b22;
                             border-radius: 10px;
                             VerticalLayout {
                                 alignment: center;
                                 padding: 24px;
+                                spacing: 10px;
                                 Text {
-                                    text: "No desktop environments detected.\nClick Refresh in the header to scan for installed DEs.";
-                                    font-size: 13px;
+                                    text: "No profiles saved yet";
+                                    font-size: 16px;
+                                    font-weight: 600;
                                     color: #8b949e;
+                                    horizontal-alignment: center;
+                                }
+                                Text {
+                                    text: "Install a desktop environment from the DE Store, then save your first profile.";
+                                    font-size: 13px;
+                                    color: #484f58;
                                     horizontal-alignment: center;
                                     wrap: word-wrap;
                                 }
                             }
                         }
 
-                        // DE list
-                        for de[index] in available-desktops: Rectangle {
-                            height: 76px;
-                            background: de-hover.has-hover ? #1c2128 : #161b22;
-                            border-radius: 10px;
+                        // Profile grid (flat list with section headers + cards)
+                        for item[index] in display-items: Rectangle {
+                            height: item.item-type == 0 ? 42px : 100px;
+                            background: item.item-type == 0 ? transparent : (card-hover.has-hover ? #1c2128 : #161b22);
+                            border-radius: item.item-type == 0 ? 0px : 10px;
 
-                            de-hover := TouchArea {
+                            card-hover := TouchArea {
                                 HorizontalLayout {
-                                    padding: 18px;
-                                    spacing: 14px;
+                                    padding: item.item-type == 0 ? 0px : 14px;
+                                    spacing: 12px;
                                     alignment: center;
 
-                                    VerticalLayout {
-                                        vertical-stretch: 1;
-                                        spacing: 5px;
-                                        alignment: center;
-
+                                    if item.item-type == 0: // Section header
                                         HorizontalLayout {
                                             spacing: 10px;
                                             alignment: start;
                                             Text {
-                                                text: de.name;
-                                                font-size: 15px;
-                                                font-weight: 600;
-                                                color: #f0f6fc;
+                                                text: item.header-text;
+                                                font-size: 16px;
+                                                font-weight: 700;
+                                                color: #f97316;
                                                 vertical-alignment: center;
                                             }
-                                            if de.is-current: Pill {
-                                                label: "CURRENT";
-                                                pill-bg: #23863633;
-                                                pill-color: #3fb950;
+                                            Rectangle {
+                                                height: 2px;
+ background: #f9731633;
+                                                vertical-stretch: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                horizontal-stretch: 1;
+                                            }
+                                            PrimaryBtn {
+                                                label: "Save Profile";
+                                                height: 32px;
+                                                clicked => {
+                                                    root.save-de-name = item.header-text;
+                                                    root.show-save-dialog = true;
+                                                }
                                             }
                                         }
 
-                                        Text {
-                                            text: de.is-current
-                                                ? "Currently active desktop environment"
-                                                : "Click Switch to set as default (requires logout)";
-                                            font-size: 12px;
-                                            color: #484f58;
+                                    if item.item-type == 1: // Profile card
+                                        HorizontalLayout {
+                                            spacing: 14px;
+                                            alignment: center;
+                                            vertical-stretch: 1;
+
+                                            // Thumbnail placeholder
+                                            Rectangle {
+                                                width: 120px;
+                                                height: 72px;
+                                                background: #21262d;
+                                                border-radius: 6px;
+                                                border-width: 1px;
+                                                border-color: #30363d;
+
+                                                VerticalLayout {
+                                                    alignment: center;
+                                                    Text {
+                                                        text: item.profile-thumbnail == "" ? "📷" : "🖼";
+                                                        font-size: 24px;
+                                                        horizontal-alignment: center;
+                                                    }
+                                                }
+                                            }
+
+                                            VerticalLayout {
+                                                spacing: 4px;
+                                                Text {
+                                                    text: item.profile-name;
+                                                    font-size: 14px;
+                                                    font-weight: 600;
+                                                    color: #f0f6fc;
+                                                }
+                                                Text {
+                                                    text: item.profile-de;
+                                                    font-size: 11px;
+                                                    color: #8b949e;
+                                                }
+                                                Text {
+                                                    text: item.profile-created;
+                                                    font-size: 11px;
+                                                    color: #484f58;
+                                                }
+                                            }
+
+                                            Rectangle { horizontal-stretch: 1; }
+
+                                            HorizontalLayout {
+                                                spacing: 6px;
+                                                alignment: end;
+                                                SmallBtn {
+                                                    label: "Restore";
+                                                    is-primary: true;
+                                                    clicked => {
+                                                        root.confirm-index = item.profile-index;
+                                                        root.confirm-title = "Restore Profile?";
+                                                        root.confirm-message = "Restore profile '" + item.profile-name + "' for " + item.profile-de + "?";
+                                                        root.show-restore-confirm = true;
+                                                    }
+                                                }
+                                                SmallBtn {
+                                                    label: "Delete";
+                                                    clicked => {
+                                                        root.confirm-index = item.profile-index;
+                                                        root.confirm-title = "Delete Profile?";
+                                                        root.confirm-message = "Delete profile '" + item.profile-name + "'? This cannot be undone.";
+                                                        root.show-delete-confirm = true;
+                                                    }
+                                                }
+                                            }
                                         }
-                                    }
-
-                                    Rectangle { horizontal-stretch: 1; }
-
-                                    if !de.is-current: SmallBtn {
-                                        label: "Switch";
-                                        is-primary: true;
-                                        clicked => { root.switch-desktop(index); }
-                                    }
                                 }
                             }
                             animate background { duration: 120ms; }
-                        }
-                    }
-
-                    // ════════════════════════════════════════════
-                    // TAB 2: Backup Items
-                    // ════════════════════════════════════════════
-                    if root.nav-tab == 2: VerticalLayout {
-                        vertical-stretch: 1;
-                        spacing: 14px;
-
-                        // Info card
-                        Rectangle {
-                            background: #161b22;
-                            border-radius: 10px;
-                            height: 72px;
-                            VerticalLayout {
-                                padding: 16px;
-                                spacing: 4px;
-                                Text {
-                                    text: "Select what to include in profile backups";
-                                    font-size: 13px;
-                                    font-weight: 600;
-                                    color: #c9d1d9;
-                                }
-                                Text {
-                                    text: "Toggle items on or off — these paths are archived when you create a new profile.";
-                                    font-size: 12px;
-                                    color: #8b949e;
-                                    overflow: elide;
-                                }
-                            }
-                        }
-
-                        // Backup item list
-                        for item[index] in backup-items: Rectangle {
-                            height: 62px;
-                            background: bi-hover.has-hover ? #1c2128 : #161b22;
-                            border-radius: 8px;
-
-                            bi-hover := TouchArea {
-                                HorizontalLayout {
-                                    padding-left: 14px;
-                                    padding-right: 18px;
-                                    spacing: 14px;
-                                    alignment: center;
-
-                                    CheckBox {
-                                        checked: item.enabled;
-                                        toggled => { root.toggle-backup-item(index, self.checked); }
-                                    }
-
-                                    VerticalLayout {
-                                        vertical-stretch: 1;
-                                        spacing: 3px;
-                                        alignment: center;
-                                        Text {
-                                            text: item.name;
-                                            font-size: 13px;
-                                            font-weight: 500;
-                                            color: #f0f6fc;
-                                        }
-                                        Text {
-                                            text: item.path;
-                                            font-size: 11px;
-                                            color: #484f58;
-                                            overflow: elide;
-                                        }
-                                    }
-
-                                    Rectangle { horizontal-stretch: 1; }
-
-                                    Pill {
-                                        label: item.category;
-                                    }
-
-                                    Text {
-                                        text: item.size-estimate;
-                                        font-size: 11px;
-                                        color: #484f58;
-                                        horizontal-alignment: right;
-                                        vertical-alignment: center;
-                                        min-width: 70px;
-                                    }
-                                }
-                            }
-                            animate background { duration: 120ms; }
-                        }
-                    }
-
-                    // ════════════════════════════════════════════
-                    // TAB 3: DE Conflict Fixes
-                    // ════════════════════════════════════════════
-                    if root.nav-tab == 3: VerticalLayout {
-                        vertical-stretch: 1;
-                        spacing: 14px;
-
-                        // Info card
-                        Rectangle {
-                            background: #161b22;
-                            border-radius: 10px;
-                            height: 72px;
-                            VerticalLayout {
-                                padding: 16px;
-                                spacing: 4px;
-                                Text {
-                                    text: "Prevent conflicts between multiple desktop environments";
-                                    font-size: 13px;
-                                    font-weight: 600;
-                                    color: #c9d1d9;
-                                }
-                                Text {
-                                    text: "Fixes icon, cursor, GTK theme isolation, scaling, dark mode, and menu clutter issues.";
-                                    font-size: 12px;
-                                    color: #8b949e;
-                                    overflow: elide;
-                                }
-                            }
-                        }
-
-                        // Conflict fix list
-                        for fix[index] in conflict-fixes: Rectangle {
-                            height: 72px;
-                            background: cf-hover.has-hover ? #1c2128 : #161b22;
-                            border-radius: 8px;
-
-                            cf-hover := TouchArea {
-                                HorizontalLayout {
-                                    padding-left: 14px;
-                                    padding-right: 18px;
-                                    spacing: 14px;
-                                    alignment: center;
-
-                                    CheckBox {
-                                        checked: fix.enabled;
-                                        toggled => { root.toggle-conflict-fix(index, self.checked); }
-                                    }
-
-                                    VerticalLayout {
-                                        vertical-stretch: 1;
-                                        spacing: 4px;
-                                        alignment: center;
-                                        Text {
-                                            text: fix.name;
-                                            font-size: 13px;
-                                            font-weight: 500;
-                                            color: #f0f6fc;
-                                        }
-                                        Text {
-                                            text: fix.description;
-                                            font-size: 11px;
-                                            color: #484f58;
-                                            wrap: word-wrap;
-                                            overflow: elide;
-                                        }
-                                    }
-
-                                    Rectangle { horizontal-stretch: 1; }
-
-                                    Pill {
-                                        label: fix.category;
-                                    }
-                                }
-                            }
-                            animate background { duration: 120ms; }
-                        }
-                    }
-
-                    // ════════════════════════════════════════════
-                    // TAB 4: Folder Backup
-                    // ════════════════════════════════════════════
-                    if root.nav-tab == 4: VerticalLayout {
-                        vertical-stretch: 1;
-                        spacing: 14px;
-
-                        // Info card
-                        Rectangle {
-                            background: #161b22;
-                            border-radius: 10px;
-                            height: 72px;
-                            VerticalLayout {
-                                padding: 16px;
-                                spacing: 4px;
-                                Text {
-                                    text: "Backup specific folders to external locations";
-                                    font-size: 13px;
-                                    font-weight: 600;
-                                    color: #c9d1d9;
-                                }
-                                Text {
-                                    text: "Copy important folders to external drives, network shares, or cloud-synced directories.";
-                                    font-size: 12px;
-                                    color: #8b949e;
-                                    overflow: elide;
-                                }
-                            }
-                        }
-
-                        // Add-new row
-                        Rectangle {
-                            height: 56px;
-                            background: #161b22;
-                            border-radius: 8px;
-                            HorizontalLayout {
-                                padding: 10px;
-                                spacing: 8px;
-                                alignment: center;
-
-                                fb-source := LineEdit {
-                                    placeholder-text: "Source folder path…";
-                                    vertical-stretch: 1;
-                                }
-
-                                fb-dest := LineEdit {
-                                    placeholder-text: "Destination folder path…";
-                                    vertical-stretch: 1;
-                                }
-
-                                PrimaryBtn {
-                                    label: "+ Add";
-                                    height: 36px;
-                                    clicked => {
-                                        if (fb-source.text != "" && fb-dest.text != "") {
-                                            root.add-folder-backup(fb-source.text, fb-dest.text);
-                                            fb-source.text = "";
-                                            fb-dest.text = "";
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Empty state
-                        if folder-backups.length == 0: Rectangle {
-                            height: 100px;
-                            background: #161b22;
-                            border-radius: 8px;
-                            VerticalLayout {
-                                alignment: center;
-                                Text {
-                                    text: "No folder backup jobs yet. Add one above.";
-                                    font-size: 13px;
-                                    color: #484f58;
-                                    horizontal-alignment: center;
-                                }
-                            }
-                        }
-
-                        // Folder backup list
-                        for fb[index] in folder-backups: Rectangle {
-                            height: 70px;
-                            background: fb-hover.has-hover ? #1c2128 : #161b22;
-                            border-radius: 8px;
-
-                            fb-hover := TouchArea {
-                                HorizontalLayout {
-                                    padding-left: 14px;
-                                    padding-right: 18px;
-                                    spacing: 14px;
-                                    alignment: center;
-
-                                    CheckBox {
-                                        checked: fb.enabled;
-                                        toggled => { root.toggle-folder-backup(index, self.checked); }
-                                    }
-
-                                    VerticalLayout {
-                                        vertical-stretch: 1;
-                                        spacing: 4px;
-                                        alignment: center;
-                                        Text {
-                                            text: fb.label;
-                                            font-size: 13px;
-                                            font-weight: 500;
-                                            color: #f0f6fc;
-                                        }
-                                        Text {
-                                            text: fb.source-path + "  →  " + fb.dest-path;
-                                            font-size: 11px;
-                                            color: #484f58;
-                                            overflow: elide;
-                                        }
-                                    }
-
-                                    Rectangle { horizontal-stretch: 1; }
-
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        SmallBtn {
-                                            label: "Run";
-                                            is-primary: true;
-                                            clicked => { root.run-folder-backup(index); }
-                                        }
-                                        SmallBtn {
-                                            label: "Remove";
-                                            clicked => { root.remove-folder-backup(index); }
-                                        }
-                                    }
-                                }
-                            }
-                            animate background { duration: 120ms; }
-                        }
-                    }
-
-                    // ════════════════════════════════════════════
-                    // TAB 5: Settings
-                    // ════════════════════════════════════════════
-                    if root.nav-tab == 5: VerticalLayout {
-                        vertical-stretch: 1;
-                        spacing: 16px;
-
-                        // Remote Backup card
-                        Rectangle {
-                            background: #161b22;
-                            border-radius: 10px;
-                            VerticalLayout {
-                                padding: 20px;
-                                spacing: 12px;
-                                Text {
-                                    text: "Remote Backup";
-                                    font-size: 15px;
-                                    font-weight: 700;
-                                    color: #f0f6fc;
-                                }
-                                Text {
-                                    text: "Remote Target URL or Path";
-                                    font-size: 12px;
-                                    color: #8b949e;
-                                }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    settings-remote-url := LineEdit {
-                                        text: root.remote-url;
-                                        placeholder-text: "https://backup.example.com/profiles  or  file:///mnt/backup";
-                                        vertical-stretch: 1;
-                                    }
-                                    PrimaryBtn {
-                                        label: "Save";
-                                        height: 36px;
-                                        clicked => { root.save-remote-url(settings-remote-url.text); }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Auto-save card
-                        Rectangle {
-                            background: #161b22;
-                            border-radius: 10px;
-                            VerticalLayout {
-                                padding: 20px;
-                                spacing: 14px;
-                                Text {
-                                    text: "Automatic Profile Saving";
-                                    font-size: 15px;
-                                    font-weight: 700;
-                                    color: #f0f6fc;
-                                }
-                                HorizontalLayout {
-                                    spacing: 16px;
-                                    alignment: start;
-                                    CheckBox {
-                                        checked: root.auto-save-enabled;
-                                        text: "Enable auto-save";
-                                    }
-                                    Text {
-                                        text: "Every";
-                                        font-size: 13px;
-                                        color: #8b949e;
-                                        vertical-alignment: center;
-                                    }
-                                    auto-save-hours := Slider {
-                                        minimum: 1;
-                                        maximum: 168;
-                                        value: root.auto-save-interval;
-                                        min-width: 140px;
-                                    }
-                                    Text {
-                                        text: Math.round(auto-save-hours.value) + " hours";
-                                        font-size: 13px;
-                                        color: #c9d1d9;
-                                        vertical-alignment: center;
-                                        min-width: 60px;
-                                    }
-                                    PrimaryBtn {
-                                        label: "Save";
-                                        height: 36px;
-                                        clicked => {
-                                            root.save-auto-save-settings(
-                                                root.auto-save-enabled,
-                                                Math.round(auto-save-hours.value)
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // External Backup Location card
-                        Rectangle {
-                            background: #161b22;
-                            border-radius: 10px;
-                            VerticalLayout {
-                                padding: 20px;
-                                spacing: 12px;
-                                Text {
-                                    text: "External Backup Location";
-                                    font-size: 15px;
-                                    font-weight: 700;
-                                    color: #f0f6fc;
-                                }
-                                Text {
-                                    text: "Default destination for folder backup jobs";
-                                    font-size: 12px;
-                                    color: #8b949e;
-                                }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    settings-ext-backup := LineEdit {
-                                        text: root.external-backup-path;
-                                        placeholder-text: "/mnt/external-drive/backups";
-                                        vertical-stretch: 1;
-                                    }
-                                    PrimaryBtn {
-                                        label: "Save";
-                                        height: 36px;
-                                        clicked => { root.save-external-backup-path(settings-ext-backup.text); }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Profile Storage card
-                        Rectangle {
-                            background: #161b22;
-                            border-radius: 10px;
-                            VerticalLayout {
-                                padding: 20px;
-                                spacing: 8px;
-                                Text {
-                                    text: "Profile Storage";
-                                    font-size: 15px;
-                                    font-weight: 700;
-                                    color: #f0f6fc;
-                                }
-                                Text {
-                                    text: "~/.config/shapeshifter/profiles";
-                                    font-size: 13px;
-                                    color: #8b949e;
-                                    font-weight: 500;
-                                }
-                                Text {
-                                    text: "Profiles are stored locally as JSON with associated config archives.";
-                                    font-size: 12px;
-                                    color: #484f58;
-                                }
-                            }
                         }
                     }
 
@@ -1348,18 +749,19 @@ export component AppWindow inherits Window {
                 }
             }
         }
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // Modal: Create Profile
+    // Modal: Install Confirm
     // ════════════════════════════════════════════════════════════════════════
-    if root.show-create-dialog: Rectangle {
+    if root.show-install-confirm: Rectangle {
         width: 100%;
         height: 100%;
         background: #00000099;
 
         Rectangle {
-            width: 480px;
+            width: 440px;
             background: #161b22;
             border-radius: 12px;
             border-width: 1px;
@@ -1371,10 +773,9 @@ export component AppWindow inherits Window {
                 padding: 28px;
                 spacing: 20px;
 
-                // Title row
                 HorizontalLayout {
                     Text {
-                        text: "Create New Profile";
+                        text: root.confirm-title;
                         font-size: 18px;
                         font-weight: 700;
                         color: #f0f6fc;
@@ -1383,28 +784,17 @@ export component AppWindow inherits Window {
                     Rectangle { horizontal-stretch: 1; }
                     SmallBtn {
                         label: "✕";
-                        clicked => { root.show-create-dialog = false; }
+                        clicked => { root.show-install-confirm = false; }
                     }
                 }
 
                 Rectangle { height: 1px; background: #30363d; }
 
-                // Name field
-                VerticalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: "Profile Name";
-                        font-size: 12px;
-                        color: #8b949e;
-                    }
-                    create-profile-name := LineEdit {
-                        placeholder-text: "e.g., My GNOME Setup";
-                        height: 36px;
-                    }
-                }
-
-                create-save-remote := CheckBox {
-                    text: "Also save to remote backup target";
+                Text {
+                    text: root.confirm-message;
+                    font-size: 13px;
+                    color: #c9d1d9;
+                    wrap: word-wrap;
                 }
 
                 HorizontalLayout {
@@ -1413,19 +803,14 @@ export component AppWindow inherits Window {
                     SecondaryBtn {
                         label: "Cancel";
                         height: 36px;
-                        clicked => {
-                            root.show-create-dialog = false;
-                            create-profile-name.text = "";
-                        }
+                        clicked => { root.show-install-confirm = false; }
                     }
                     PrimaryBtn {
-                        label: "Create Profile";
+                        label: "Install";
                         height: 36px;
-                        enabled-btn: create-profile-name.text != "";
                         clicked => {
-                            root.create-profile(create-profile-name.text, create-save-remote.checked);
-                            root.show-create-dialog = false;
-                            create-profile-name.text = "";
+                            root.confirm-install-de();
+                            root.show-install-confirm = false;
                         }
                     }
                 }
@@ -1434,15 +819,15 @@ export component AppWindow inherits Window {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // Modal: Import Profile
+    // Modal: Remove Confirm
     // ════════════════════════════════════════════════════════════════════════
-    if root.show-import-dialog: Rectangle {
+    if root.show-remove-confirm: Rectangle {
         width: 100%;
         height: 100%;
         background: #00000099;
 
         Rectangle {
-            width: 480px;
+            width: 440px;
             background: #161b22;
             border-radius: 12px;
             border-width: 1px;
@@ -1456,7 +841,7 @@ export component AppWindow inherits Window {
 
                 HorizontalLayout {
                     Text {
-                        text: "Import Profile";
+                        text: root.confirm-title;
                         font-size: 18px;
                         font-weight: 700;
                         color: #f0f6fc;
@@ -1465,23 +850,17 @@ export component AppWindow inherits Window {
                     Rectangle { horizontal-stretch: 1; }
                     SmallBtn {
                         label: "✕";
-                        clicked => { root.show-import-dialog = false; }
+                        clicked => { root.show-remove-confirm = false; }
                     }
                 }
 
                 Rectangle { height: 1px; background: #30363d; }
 
-                VerticalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: "Profile Archive Path (.tar.gz)";
-                        font-size: 12px;
-                        color: #8b949e;
-                    }
-                    import-path := LineEdit {
-                        placeholder-text: "/path/to/profile.tar.gz";
-                        height: 36px;
-                    }
+                Text {
+                    text: root.confirm-message;
+                    font-size: 13px;
+                    color: #c9d1d9;
+                    wrap: word-wrap;
                 }
 
                 HorizontalLayout {
@@ -1490,19 +869,14 @@ export component AppWindow inherits Window {
                     SecondaryBtn {
                         label: "Cancel";
                         height: 36px;
-                        clicked => {
-                            root.show-import-dialog = false;
-                            import-path.text = "";
-                        }
+                        clicked => { root.show-remove-confirm = false; }
                     }
                     PrimaryBtn {
-                        label: "Import";
+                        label: "Remove";
                         height: 36px;
-                        enabled-btn: import-path.text != "";
                         clicked => {
-                            root.import-profile(import-path.text);
-                            root.show-import-dialog = false;
-                            import-path.text = "";
+                            root.confirm-remove-de();
+                            root.show-remove-confirm = false;
                         }
                     }
                 }
@@ -1511,15 +885,15 @@ export component AppWindow inherits Window {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // Modal: Edit Profile
+    // Modal: Restore Confirm
     // ════════════════════════════════════════════════════════════════════════
-    if root.show-edit-dialog: Rectangle {
+    if root.show-restore-confirm: Rectangle {
         width: 100%;
         height: 100%;
         background: #00000099;
 
         Rectangle {
-            width: 480px;
+            width: 440px;
             background: #161b22;
             border-radius: 12px;
             border-width: 1px;
@@ -1533,7 +907,7 @@ export component AppWindow inherits Window {
 
                 HorizontalLayout {
                     Text {
-                        text: "Edit Profile";
+                        text: root.confirm-title;
                         font-size: 18px;
                         font-weight: 700;
                         color: #f0f6fc;
@@ -1542,28 +916,17 @@ export component AppWindow inherits Window {
                     Rectangle { horizontal-stretch: 1; }
                     SmallBtn {
                         label: "✕";
-                        clicked => { root.show-edit-dialog = false; }
+                        clicked => { root.show-restore-confirm = false; }
                     }
                 }
 
                 Rectangle { height: 1px; background: #30363d; }
 
-                VerticalLayout {
-                    spacing: 8px;
-                    Text {
-                        text: "Profile Name";
-                        font-size: 12px;
-                        color: #8b949e;
-                    }
-                    edit-profile-name-input := LineEdit {
-                        text: root.edit-profile-name;
-                        height: 36px;
-                    }
-                }
-
-                edit-save-remote := CheckBox {
-                    text: "Save to remote backup target";
-                    checked: root.edit-profile-remote;
+                Text {
+                    text: root.confirm-message;
+                    font-size: 13px;
+                    color: #c9d1d9;
+                    wrap: word-wrap;
                 }
 
                 HorizontalLayout {
@@ -1572,22 +935,231 @@ export component AppWindow inherits Window {
                     SecondaryBtn {
                         label: "Cancel";
                         height: 36px;
-                        clicked => { root.show-edit-dialog = false; }
+                        clicked => { root.show-restore-confirm = false; }
                     }
                     PrimaryBtn {
-                        label: "Save Changes";
+                        label: "Restore";
                         height: 36px;
-                        enabled-btn: edit-profile-name-input.text != "";
                         clicked => {
-                            root.save-edit-profile(
-                                root.edit-profile-name,
-                                edit-profile-name-input.text,
-                                edit-save-remote.checked
+                            root.confirm-restore-profile();
+                            root.show-restore-confirm = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Delete Confirm
+    // ════════════════════════════════════════════════════════════════════════
+    if root.show-delete-confirm: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000099;
+
+        Rectangle {
+            width: 440px;
+            background: #161b22;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 28px;
+                spacing: 20px;
+
+                HorizontalLayout {
+                    Text {
+                        text: root.confirm-title;
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => { root.show-delete-confirm = false; }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #30363d; }
+
+                Text {
+                    text: root.confirm-message;
+                    font-size: 13px;
+                    color: #c9d1d9;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => { root.show-delete-confirm = false; }
+                    }
+                    PrimaryBtn {
+                        label: "Delete";
+                        height: 36px;
+                        clicked => {
+                            root.confirm-delete-profile();
+                            root.show-delete-confirm = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Save Profile
+    // ════════════════════════════════════════════════════════════════════════
+    if root.show-save-dialog: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000099;
+
+        Rectangle {
+            width: 500px;
+            background: #161b22;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 28px;
+                spacing: 20px;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Save Profile";
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => {
+                            root.show-save-dialog = false;
+                            save-profile-name.text = "";
+                            save-thumbnail-path.text = "";
+                            save-remote-path.text = "";
+                        }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #30363d; }
+
+                // Profile name
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Profile Name";
+                        font-size: 12px;
+                        color: #8b949e;
+                    }
+                    save-profile-name := LineEdit {
+                        placeholder-text: "e.g., Dark Plasma Setup";
+                        height: 36px;
+                    }
+                }
+
+                // DE (read-only)
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Desktop Environment";
+                        font-size: 12px;
+                        color: #8b949e;
+                    }
+                    Text {
+                        text: root.save-de-name;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: #f0f6fc;
+                    }
+                }
+
+                // Thumbnail
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Thumbnail Image";
+                        font-size: 12px;
+                        color: #8b949e;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        save-thumbnail-path := LineEdit {
+                            placeholder-text: "Path to image or leave empty for default";
+                            vertical-stretch: 1;
+                            height: 36px;
+                        }
+                        SecondaryBtn {
+                            label: "Browse";
+                            height: 36px;
+                            clicked => { root.browse-thumbnail(); }
+                        }
+                    }
+                }
+
+                // Remote path (optional)
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Remote Path (optional)";
+                        font-size: 12px;
+                        color: #8b949e;
+                    }
+                    save-remote-path := LineEdit {
+                        placeholder-text: root.last-remote-path != "" ? root.last-remote-path : "/mnt/backup/profiles/";
+                        height: 36px;
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => {
+                            root.show-save-dialog = false;
+                            save-profile-name.text = "";
+                            save-thumbnail-path.text = "";
+                            save-remote-path.text = "";
+                        }
+                    }
+                    PrimaryBtn {
+                        label: "Save Profile";
+                        height: 36px;
+                        enabled-btn: save-profile-name.text != "";
+                        clicked => {
+                            root.save-profile(
+                                save-profile-name.text,
+                                save-thumbnail-path.text,
+                                save-remote-path.text
                             );
+                            root.show-save-dialog = false;
+                            save-profile-name.text = "";
+                            save-thumbnail-path.text = "";
+                            save-remote-path.text = "";
                         }
                     }
                 }
             }
         }
     }
+
+    // ── Navigation state ─────────────────────────────────────────────────────
+    in-out property <int> nav-tab: 0;
 }

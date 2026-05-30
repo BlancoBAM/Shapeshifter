@@ -1,279 +1,131 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use slint::*;
-use std::collections::HashMap;
+use slint::{Model, ModelRc, SharedString, VecModel};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 slint::include_modules!();
+
+// ─── DE Definitions ────────────────────────────────────────────────────────────
+
+struct DeDefinition {
+    name: &'static str,
+    meta_package: &'static str,
+    fallback_packages: &'static [&'static str],
+}
+
+const DE_LIST: &[DeDefinition] = &[
+    DeDefinition { name: "Plasma", meta_package: "lilith-plasma", fallback_packages: &["plasma-desktop", "sddm", "systemsettings", "plasma-workspace-wayland"] },
+    DeDefinition { name: "XFCE", meta_package: "lilith-xfce", fallback_packages: &["xfce4", "xfce4-session", "xfwm4", "xfce4-panel"] },
+    DeDefinition { name: "LXDE", meta_package: "lilith-lxde", fallback_packages: &["lxde-core", "lxsession", "openbox"] },
+    DeDefinition { name: "LXQt", meta_package: "lilith-lxqt", fallback_packages: &["lxqt-core", "openbox"] },
+    DeDefinition { name: "Budgie", meta_package: "lilith-budgie", fallback_packages: &["budgie-desktop", "budgie-indicator-applet"] },
+    DeDefinition { name: "Deepin", meta_package: "lilith-deepin", fallback_packages: &["dde-session-ui", "dde-desktop", "deepin-wm"] },
+    DeDefinition { name: "Trinity", meta_package: "lilith-trinity", fallback_packages: &["tde-trinity", "tdm"] },
+    DeDefinition { name: "Enlightenment", meta_package: "lilith-enlightenment", fallback_packages: &["enlightenment", "terminology"] },
+    DeDefinition { name: "Pantheon", meta_package: "lilith-pantheon", fallback_packages: &["pantheon-shell", "gala", "wingpanel", "plank"] },
+    DeDefinition { name: "GNOME", meta_package: "lilith-gnome", fallback_packages: &["gnome-session", "gnome-shell", "gnome-control-center"] },
+    DeDefinition { name: "MATE", meta_package: "lilith-mate", fallback_packages: &["mate-desktop-environment-core"] },
+    DeDefinition { name: "i3", meta_package: "lilith-i3", fallback_packages: &["i3-wm", "i3status", "i3lock", "dmenu"] },
+    DeDefinition { name: "Sway", meta_package: "lilith-sway", fallback_packages: &["sway", "swaylock", "swayidle", "swaybg", "wmenu"] },
+];
+
+fn get_de_backup_paths(de: &str) -> Vec<&'static str> {
+    match de.to_lowercase().as_str() {
+        "plasma" | "kde" => vec![
+            ".config/plasma*", ".config/kde*",
+            ".local/share/plasma/", ".config/kwinrc",
+            ".config/kdeglobals", ".config/plasmarc",
+        ],
+        "gnome" => vec![
+            ".config/gnome*", ".local/share/gnome-shell/",
+            ".config/dconf/",
+        ],
+        "xfce" => vec![".config/xfce4/"],
+        "lxde" => vec![".config/lxsession/", ".config/openbox/"],
+        "lxqt" => vec![".config/lxqt/", ".config/openbox/"],
+        "budgie" => vec![".config/budgie-desktop/"],
+        "deepin" => vec![".config/deepin/"],
+        "trinity" => vec![".trinity/"],
+        "enlightenment" => vec![".e/", ".config/terminology/"],
+        "pantheon" => vec![".config/plank/", ".config/wingpanel/"],
+        "mate" => vec![".config/mate/"],
+        "i3" => vec![".config/i3/", ".config/i3status/"],
+        "sway" => vec![".config/sway/", ".config/swaylock/"],
+        _ => vec![],
+    }
+}
+
+fn get_shared_backup_paths() -> Vec<&'static str> {
+    vec![
+        ".themes/",
+        ".icons/",
+        ".fonts/",
+        ".local/share/fonts/",
+        ".config/gtk-3.0/",
+        ".config/gtk-4.0/",
+    ]
+}
+
+// ─── Data Models ───────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Profile {
     name: String,
+    de: String,
     created: String,
-    desktop_environment: String,
     packages: Vec<String>,
-    is_remote: bool,
-    backup_items: Vec<String>,
-    config_archive: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct BackupItemConfig {
-    name: String,
-    path: String,
-    enabled: bool,
-    category: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct ConflictFixConfig {
-    name: String,
-    description: String,
-    enabled: bool,
-    category: String,
-    apply_fn: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct FolderBackupEntry {
-    label: String,
-    source_path: String,
-    dest_path: String,
-    enabled: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct ScheduledSaveConfig {
-    enabled: bool,
-    interval_hours: u32,
-    last_run: String,
+    thumbnail: String,
+    remote_path: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct AppConfig {
-    remote_url: String,
-    profiles_dir: String,
-    backup_items: Vec<BackupItemConfig>,
-    conflict_fixes: Vec<ConflictFixConfig>,
-    folder_backups: Vec<FolderBackupEntry>,
-    scheduled_save: ScheduledSaveConfig,
-    external_backup_path: String,
+    version: i32,
+    last_remote_path: String,
+    installed_des: Vec<String>,
+    last_profile: Option<LastProfile>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct LastProfile {
+    de: String,
+    name: String,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
         Self {
-            remote_url: String::new(),
-            profiles_dir: home
-                .join(".config/shapeshifter/profiles")
-                .to_string_lossy()
-                .to_string(),
-            backup_items: default_backup_items(),
-            conflict_fixes: default_conflict_fixes(),
-            folder_backups: Vec::new(),
-            scheduled_save: ScheduledSaveConfig {
-                enabled: false,
-                interval_hours: 24,
-                last_run: String::new(),
-            },
-            external_backup_path: String::new(),
+            version: 2,
+            last_remote_path: String::new(),
+            installed_des: Vec::new(),
+            last_profile: None,
         }
     }
 }
 
-fn default_backup_items() -> Vec<BackupItemConfig> {
-    vec![
-        BackupItemConfig {
-            name: "GTK Themes".to_string(),
-            path: "$HOME/.themes, $HOME/.local/share/themes".to_string(),
-            enabled: true,
-            category: "Themes".to_string(),
-        },
-        BackupItemConfig {
-            name: "Icon Themes".to_string(),
-            path: "$HOME/.icons, $HOME/.local/share/icons".to_string(),
-            enabled: true,
-            category: "Themes".to_string(),
-        },
-        BackupItemConfig {
-            name: "Cursor Themes".to_string(),
-            path: "$HOME/.local/share/icons".to_string(),
-            enabled: true,
-            category: "Themes".to_string(),
-        },
-        BackupItemConfig {
-            name: "Fonts".to_string(),
-            path: "$HOME/.local/share/fonts, $HOME/.fonts".to_string(),
-            enabled: true,
-            category: "Appearance".to_string(),
-        },
-        BackupItemConfig {
-            name: "Wallpapers".to_string(),
-            path: "$HOME/Pictures/Wallpapers, $HOME/.local/share/wallpapers".to_string(),
-            enabled: false,
-            category: "Appearance".to_string(),
-        },
-        BackupItemConfig {
-            name: "GNOME Extensions".to_string(),
-            path: "$HOME/.local/share/gnome-shell/extensions".to_string(),
-            enabled: false,
-            category: "Extensions".to_string(),
-        },
-        BackupItemConfig {
-            name: "KDE Plasma Configs".to_string(),
-            path: "$HOME/.config/kdeglobals, $HOME/.config/plasma-org.kde.plasma.desktop-appletsrc"
-                .to_string(),
-            enabled: false,
-            category: "DE Config".to_string(),
-        },
-BackupItemConfig {
-            name: "GNOME/DConf Settings".to_string(),
-            path: "$HOME/.config/dconf".to_string(),
-            enabled: false,
-            category: "DE Config".to_string(),
-        },
-        BackupItemConfig {
-            name: "XFCE Config".to_string(),
-            path: "$HOME/.config/xfce4".to_string(),
-            enabled: false,
-            category: "DE Config".to_string(),
-        },
-        BackupItemConfig {
-            name: "Terminal Config".to_string(),
-            path: "$HOME/.config/alacritty, $HOME/.config/kitty, $HOME/.config/foot".to_string(),
-            enabled: true,
-            category: "Apps".to_string(),
-        },
-        BackupItemConfig {
-            name: "Shell Config".to_string(),
-            path: "$HOME/.bashrc, $HOME/.zshrc, $HOME/.profile".to_string(),
-            enabled: true,
-            category: "Apps".to_string(),
-        },
-        BackupItemConfig {
-            name: "Editor Config".to_string(),
-            path: "$HOME/.config/nvim, $HOME/.config/Code, $HOME/.vscode".to_string(),
-            enabled: false,
-            category: "Apps".to_string(),
-        },
-        BackupItemConfig {
-            name: "Flatpak Apps & Data".to_string(),
-            path: "$HOME/.var/app".to_string(),
-            enabled: false,
-            category: "Apps".to_string(),
-        },
-        BackupItemConfig {
-            name: "Desktop Folder".to_string(),
-            path: "$HOME/Desktop".to_string(),
-            enabled: false,
-            category: "Files".to_string(),
-        },
-        BackupItemConfig {
-            name: "Custom Folders".to_string(),
-            path: "".to_string(),
-            enabled: false,
-            category: "Files".to_string(),
-        },
-    ]
-}
+// ─── Config Helpers ────────────────────────────────────────────────────────────
 
-fn default_conflict_fixes() -> Vec<ConflictFixConfig> {
-    vec![
-        ConflictFixConfig {
-            name: "Preserve Icon Theme Per-DE".to_string(),
-            description: "Store and restore icon theme settings separately for each desktop environment to prevent theme mixing".to_string(),
-            enabled: true,
-            category: "Themes".to_string(),
-            apply_fn: "icon_theme_isolation".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Preserve Cursor Theme Per-DE".to_string(),
-            description: "Keep cursor theme settings isolated between desktop environments".to_string(),
-            enabled: true,
-            category: "Themes".to_string(),
-            apply_fn: "cursor_theme_isolation".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Preserve GTK Theme Per-DE".to_string(),
-            description: "Store GTK theme settings per-DE so switching back restores the correct theme".to_string(),
-            enabled: true,
-            category: "Themes".to_string(),
-            apply_fn: "gtk_theme_isolation".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Preserve Scaling Per-DE".to_string(),
-            description: "Keep display scaling factors separate for each desktop environment".to_string(),
-            enabled: true,
-            category: "Display".to_string(),
-            apply_fn: "scaling_isolation".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Preserve Dark/Light Mode Per-DE".to_string(),
-            description: "Store color scheme preference (dark/light) separately for each DE".to_string(),
-            enabled: true,
-            category: "Display".to_string(),
-            apply_fn: "color_scheme_isolation".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Clean Duplicate Menu Entries".to_string(),
-            description: "Remove duplicate application entries from menus caused by multiple DEs (terminals, file managers, etc.)".to_string(),
-            enabled: true,
-            category: "Menus".to_string(),
-            apply_fn: "menu_cleanup".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Set Default Apps Per-DE".to_string(),
-            description: "Configure default applications (terminal, file manager, editor) appropriate to each DE".to_string(),
-            enabled: false,
-            category: "Menus".to_string(),
-            apply_fn: "default_apps_per_de".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Fix Stale KDE Entries in GNOME".to_string(),
-            description: "Hide KDE-specific applications from appearing in GNOME menus after switching".to_string(),
-            enabled: true,
-            category: "Menus".to_string(),
-            apply_fn: "hide_kde_in_gnome".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Fix Stale GNOME Entries in KDE".to_string(),
-            description: "Hide GNOME-specific applications from appearing in KDE menus after switching".to_string(),
-            enabled: true,
-            category: "Menus".to_string(),
-            apply_fn: "hide_gnome_in_kde".to_string(),
-        },
-        ConflictFixConfig {
-            name: "Preserve XDG Autostart Per-DE".to_string(),
-            description: "Keep autostart entries separate so DE-specific startup apps don't interfere".to_string(),
-            enabled: false,
-            category: "Startup".to_string(),
-            apply_fn: "autostart_isolation".to_string(),
-        },
-    ]
+fn get_shapeshifter_dir() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join(".config/shapeshifter")
 }
 
 fn get_config_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join(".config/shapeshifter/config.json")
+    get_shapeshifter_dir().join("config.json")
+}
+
+fn get_profiles_dir() -> PathBuf {
+    get_shapeshifter_dir().join("profiles")
 }
 
 fn load_config() -> AppConfig {
     let config_path = get_config_path();
     if config_path.exists() {
         if let Ok(content) = fs::read_to_string(&config_path) {
-            if let Ok(mut config) = serde_json::from_str::<AppConfig>(&content) {
-                if config.backup_items.is_empty() {
-                    config.backup_items = default_backup_items();
-                }
-                if config.conflict_fixes.is_empty() {
-                    config.conflict_fixes = default_conflict_fixes();
-                }
+            if let Ok(config) = serde_json::from_str::<AppConfig>(&content) {
                 return config;
             }
         }
@@ -291,80 +143,257 @@ fn save_config(config: &AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn normalize_remote_target(input: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return Err("Remote target cannot be empty".into());
-    }
-    if trimmed.starts_with("http://")
-        || trimmed.starts_with("https://")
-        || trimmed.starts_with("file://")
-        || trimmed.starts_with('/')
-    {
-        return Ok(trimmed.to_string());
-    }
-    Err("Remote target must be an http(s) URL, file:// URL, or absolute path".into())
-}
-
-fn resolve_path(input: &str) -> Vec<PathBuf> {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    let mut results = Vec::new();
-
-    for part in input.split(',') {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-        let resolved = part
-            .replace("$HOME", &home.to_string_lossy())
-            .replace("$CONFIG_DIR", &home.join(".config").to_string_lossy())
-            .replace("$SHARE_DIR", &home.join(".local/share").to_string_lossy());
-        results.push(PathBuf::from(&resolved));
-    }
-    results
-}
-
-fn estimate_path_size(paths: &[PathBuf]) -> String {
-    let mut total: u64 = 0;
-    for path in paths {
-        if path.exists() {
-            total += dir_size(path);
+fn detect_installed_des() -> Vec<String> {
+    let mut installed = Vec::new();
+    for de_def in DE_LIST {
+        if is_de_installed(de_def.name) {
+            installed.push(de_def.name.to_string());
         }
     }
-    if total == 0 {
-        return "Not found".to_string();
-    }
-    if total < 1024 {
-        return std::format!("{} B", total);
-    }
-    if total < 1024 * 1024 {
-        return std::format!("{} KB", total / 1024);
-    }
-    if total < 1024 * 1024 * 1024 {
-        return std::format!("{} MB", total / (1024 * 1024));
-    }
-    std::format!("{:.1} GB", total as f64 / (1024.0 * 1024.0 * 1024.0))
+    installed
 }
 
-fn dir_size(path: &Path) -> u64 {
-    let mut total = 0;
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            if let Ok(ty) = entry.file_type() {
-                if ty.is_dir() {
-                    total += dir_size(&entry.path());
-                } else if let Ok(meta) = entry.metadata() {
-                    total += meta.len();
+fn is_de_installed(de_name: &str) -> bool {
+    let session_dirs = vec![
+        "/usr/share/xsessions",
+        "/usr/local/share/xsessions",
+        "/usr/share/wayland-sessions",
+        "/usr/local/share/wayland-sessions",
+    ];
+
+    let lower = de_name.to_lowercase();
+
+    for dir in &session_dirs {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    let name_lower = name.to_lowercase();
+                    if name_lower.starts_with(&lower) && name_lower.ends_with(".desktop") {
+                        return true;
+                    }
                 }
             }
         }
     }
-    total
+
+    false
+}
+
+#[allow(dead_code)]
+fn find_de_definition_index(de_name: &str) -> Option<usize> {
+    DE_LIST.iter().position(|d| d.name.eq_ignore_ascii_case(de_name))
+}
+
+// ─── Profile Operations ────────────────────────────────────────────────────────
+
+fn get_profiles_dir_for_de(de: &str) -> PathBuf {
+    get_profiles_dir().join(de.to_lowercase())
+}
+
+fn get_profile_dir(de: &str, name: &str) -> PathBuf {
+    get_profiles_dir_for_de(de).join(name)
+}
+
+fn load_profiles() -> Vec<Profile> {
+    let profiles_dir = get_profiles_dir();
+    let mut profiles = Vec::new();
+
+    if !profiles_dir.exists() {
+        return profiles;
+    }
+
+    if let Ok(de_entries) = fs::read_dir(&profiles_dir) {
+        for de_entry in de_entries.flatten() {
+            let de_path = de_entry.path();
+            if !de_path.is_dir() {
+                continue;
+            }
+            let de_name = de_entry.file_name().to_string_lossy().to_string();
+
+            if let Ok(profile_entries) = fs::read_dir(&de_path) {
+                for profile_entry in profile_entries.flatten() {
+                    let profile_path = profile_entry.path();
+                    if !profile_path.is_dir() {
+                        continue;
+                    }
+                    let profile_file = profile_path.join("profile.json");
+                    if profile_file.exists() {
+                        if let Ok(content) = fs::read_to_string(profile_file) {
+                            if let Ok(mut profile) = serde_json::from_str::<Profile>(&content) {
+                                profile.de = de_name.clone();
+                                profiles.push(profile);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    profiles.sort_by(|a, b| b.created.cmp(&a.created));
+    profiles
+}
+
+fn save_profile(
+    name: &str,
+    de: &str,
+    thumbnail_path: &str,
+    remote_path: &str,
+) -> Result<Profile, Box<dyn std::error::Error>> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Profile name cannot be empty".into());
+    }
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("Invalid profile name".into());
+    }
+
+    let profile_dir = get_profile_dir(de, name);
+    if profile_dir.exists() {
+        return Err(format!("Profile '{}' already exists for {}", name, de).into());
+    }
+    fs::create_dir_all(&profile_dir)?;
+
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+
+    // Collect and archive DE-specific configs
+    let archive_path = profile_dir.join("configs.tar.gz");
+    let de_paths = get_de_backup_paths(de);
+    let shared_paths = get_shared_backup_paths();
+
+    let tar_file = fs::File::create(&archive_path)?;
+    let enc = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
+    let mut tar_builder = tar::Builder::new(enc);
+
+    let all_paths: Vec<&str> = de_paths.iter().chain(shared_paths.iter()).copied().collect();
+
+    for rel_path in &all_paths {
+        let full_path = home.join(rel_path);
+        if full_path.exists() {
+            if full_path.is_dir() {
+                if let Some(name) = full_path.file_name() {
+                    let _ = tar_builder.append_dir_all(name, &full_path);
+                }
+            } else if full_path.is_file() {
+                if let Some(name) = full_path.file_name() {
+                    if let Ok(mut file) = fs::File::open(&full_path) {
+                        let _ = tar_builder.append_file(name, &mut file);
+                    }
+                }
+            }
+        }
+    }
+
+    // Dconf dump for GNOME
+    if de.eq_ignore_ascii_case("gnome") {
+        if let Ok(output) = Command::new("dconf").args(["dump", "/"]).output() {
+            if output.status.success() {
+                let temp_dir = get_shapeshifter_dir().join("temp");
+                let _ = fs::create_dir_all(&temp_dir);
+                let dconf_file = temp_dir.join("dconf-settings.ini");
+                if fs::write(&dconf_file, &output.stdout).is_ok() {
+                    let _ = tar_builder.append_file("dconf-settings.ini", &mut fs::File::open(&dconf_file)?);
+                }
+            }
+        }
+    }
+
+    tar_builder.finish()?;
+
+    // Handle thumbnail
+    let thumbnail_dest = profile_dir.join("thumbnail.png");
+    if !thumbnail_path.is_empty() && Path::new(thumbnail_path).exists() {
+        let _ = fs::copy(thumbnail_path, &thumbnail_dest);
+    }
+
+    let packages = get_installed_packages();
+
+    let profile = Profile {
+        name: name.to_string(),
+        de: de.to_string(),
+        created: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        packages,
+        thumbnail: if thumbnail_dest.exists() { "thumbnail.png".to_string() } else { String::new() },
+        remote_path: remote_path.to_string(),
+    };
+
+    let profile_file = profile_dir.join("profile.json");
+    let json = serde_json::to_string_pretty(&profile)?;
+    fs::write(profile_file, json)?;
+
+    // Update last_profile in config
+    let mut config = load_config();
+    config.last_profile = Some(LastProfile {
+        de: de.to_string(),
+        name: name.to_string(),
+    });
+    config.last_remote_path = remote_path.to_string();
+    let _ = save_config(&config);
+
+    Ok(profile)
+}
+
+fn restore_profile(de: &str, name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let profile_dir = get_profile_dir(de, name);
+    if !profile_dir.exists() {
+        return Err(format!("Profile '{}' for {} not found", name, de).into());
+    }
+
+    let profile_file = profile_dir.join("profile.json");
+    if !profile_file.exists() {
+        return Err("Profile metadata not found".into());
+    }
+
+    let content = fs::read_to_string(&profile_file)?;
+    let _profile: Profile = serde_json::from_str(&content)?;
+
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+
+    // Extract config archive
+    let archive_path = profile_dir.join("configs.tar.gz");
+    if archive_path.exists() {
+        let tar_file = fs::File::open(&archive_path)?;
+        let dec = flate2::read::GzDecoder::new(tar_file);
+        let mut archive = tar::Archive::new(dec);
+        archive.unpack(&home)?;
+    }
+
+    // Run DE conflict isolation
+    backup_conflicting_configs(de)?;
+    restore_de_configs(de)?;
+
+    // Set DE as default session
+    set_default_session(de)?;
+
+    // Update last-profile.json
+    let last_profile = LastProfile {
+        de: de.to_string(),
+        name: name.to_string(),
+    };
+    let last_profile_path = get_shapeshifter_dir().join("last-profile.json");
+    if let Some(parent) = last_profile_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&last_profile_path, serde_json::to_string_pretty(&last_profile)?);
+
+    // Update config
+    let mut config = load_config();
+    config.last_profile = Some(last_profile);
+    let _ = save_config(&config);
+
+    Ok(format!("Profile '{}' restored. Log out to switch to {}.", name, de))
+}
+
+fn delete_profile(de: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let profile_dir = get_profile_dir(de, name);
+    if profile_dir.exists() {
+        fs::remove_dir_all(profile_dir)?;
+    }
+    Ok(())
 }
 
 fn get_installed_packages() -> Vec<String> {
     let mut packages = Vec::new();
-
     if let Ok(output) = Command::new("dpkg").args(["--get-selections"]).output() {
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
@@ -377,20 +406,6 @@ fn get_installed_packages() -> Vec<String> {
             }
         }
     }
-
-    if packages.is_empty() {
-        if let Ok(output) = Command::new("flatpak").args(["list", "--app"]).output() {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                for line in output_str.lines() {
-                    if let Some(pkg) = line.split_whitespace().next() {
-                        packages.push(pkg.to_string());
-                    }
-                }
-            }
-        }
-    }
-
     packages
 }
 
@@ -400,158 +415,318 @@ fn get_current_desktop_environment() -> String {
         .unwrap_or_else(|_| "Unknown".to_string())
 }
 
-#[derive(Debug, Clone)]
-struct DesktopEnvironment {
-    name: String,
-    session_id: String,
-    is_current: bool,
-}
+// ─── UI Conversion ─────────────────────────────────────────────────────────────
 
-fn get_available_desktop_environments() -> Vec<DesktopEnvironment> {
-    let mut desktops: HashMap<String, String> = HashMap::new();
-    let current = get_current_desktop_environment();
-
-    let session_paths = vec![
-        "/usr/share/xsessions",
-        "/usr/local/share/xsessions",
-        "/usr/share/wayland-sessions",
-        "/usr/local/share/wayland-sessions",
-    ];
-
-    for path in session_paths {
-        if let Ok(entries) = fs::read_dir(path) {
-            for entry in entries.flatten() {
-                let file_path = entry.path();
-                if file_path.extension().map_or(false, |ext| ext == "desktop") {
-                    if let Ok(content) = fs::read_to_string(&file_path) {
-                        let mut name = None;
-                        let mut no_display = false;
-
-                        for line in content.lines() {
-                            if line.starts_with("Name=") {
-                                name = Some(line.trim_start_matches("Name=").to_string());
-                            }
-                            if line == "NoDisplay=true" {
-                                no_display = true;
-                            }
-                            if name.is_some() && no_display {
-                                break;
-                            }
-                        }
-
-                        if let Some(de_name) = name {
-                            if !no_display {
-                                let session_id = file_path
-                                    .file_stem()
-                                    .map(|s| s.to_string_lossy().to_string())
-                                    .unwrap_or_default();
-                                desktops.entry(de_name).or_insert(session_id);
-                            }
-                        }
-                    }
-                }
+fn build_de_store_items(installed_des: &[String]) -> Vec<DeStoreItem> {
+    DE_LIST
+        .iter()
+        .map(|de_def| {
+            let is_installed = installed_des
+                .iter()
+                .any(|d| d.eq_ignore_ascii_case(de_def.name));
+            DeStoreItem {
+                name: de_def.name.into(),
+                meta_package: de_def.meta_package.into(),
+                is_installed,
+                is_installing: false,
+                install_status: SharedString::default(),
             }
-        }
-    }
-
-    let mut result: Vec<DesktopEnvironment> = desktops
-        .into_iter()
-        .map(|(name, session_id)| DesktopEnvironment {
-            is_current: current.to_lowercase().contains(&name.to_lowercase())
-                || session_id.to_lowercase() == current.to_lowercase(),
-            name,
-            session_id,
         })
-        .collect();
-
-    result.sort_by(|a, b| a.name.cmp(&b.name));
-    result
+        .collect()
 }
 
-fn get_de_exec_name(de_display_name: &str) -> Option<String> {
-    let session_paths = vec![
-        "/usr/share/xsessions",
-        "/usr/local/share/xsessions",
-        "/usr/share/wayland-sessions",
-        "/usr/local/share/wayland-sessions",
-    ];
+fn build_display_items(profiles: &[Profile]) -> Vec<DisplayItem> {
+    if profiles.is_empty() {
+        return Vec::new();
+    }
 
-    for path in session_paths {
-        if let Ok(entries) = fs::read_dir(path) {
-            for entry in entries.flatten() {
-                if let Ok(content) = fs::read_to_string(entry.path()) {
-                    let mut name_matches = false;
-                    let mut exec_line = None;
+    // Group profiles by DE, preserving insertion order
+    let mut de_groups: Vec<(String, Vec<&Profile>)> = Vec::new();
+    let mut seen_des: Vec<String> = Vec::new();
 
-                    for line in content.lines() {
-                        if line.starts_with("Name=")
-                            && line.trim_start_matches("Name=") == de_display_name
-                        {
-                            name_matches = true;
-                        }
-                        if line.starts_with("Exec=") {
-                            exec_line = Some(line.trim_start_matches("Exec=").to_string());
-                        }
-                    }
-
-                    if name_matches && exec_line.is_some() {
-                        return exec_line;
-                    }
-                }
-            }
+    for p in profiles {
+        if !seen_des.iter().any(|d| d.eq_ignore_ascii_case(&p.de)) {
+            seen_des.push(p.de.clone());
         }
     }
 
-    None
+    for de in &seen_des {
+        let group: Vec<&Profile> = profiles.iter().filter(|p| p.de.eq_ignore_ascii_case(de)).collect();
+        if !group.is_empty() {
+            de_groups.push((de.clone(), group));
+        }
+    }
+
+    let mut items = Vec::new();
+    let mut row_counter = 0;
+    let cols = 4;
+
+    for (de_name, group) in &de_groups {
+        // Section header
+        items.push(DisplayItem {
+            item_type: 0,
+            header_text: de_name.clone().into(),
+            grid_row: row_counter,
+            grid_col: 0,
+            profile_name: SharedString::default(),
+            profile_de: SharedString::default(),
+            profile_thumbnail: SharedString::default(),
+            profile_created: SharedString::default(),
+            profile_index: -1,
+        });
+        row_counter += 1;
+
+        // Profile cards in this section
+        for (i, p) in group.iter().enumerate() {
+            items.push(DisplayItem {
+                item_type: 1,
+                header_text: SharedString::default(),
+                grid_row: row_counter + (i / cols) as i32,
+                grid_col: (i % cols) as i32,
+                profile_name: p.name.clone().into(),
+                profile_de: p.de.clone().into(),
+                profile_thumbnail: p.thumbnail.clone().into(),
+                profile_created: p.created.clone().into(),
+                profile_index: find_profile_index(profiles, p) as i32,
+            });
+        }
+        row_counter += ((group.len() + cols - 1) / cols) as i32;
+    }
+
+    items
 }
+
+fn find_profile_index(profiles: &[Profile], target: &Profile) -> usize {
+    profiles.iter().position(|p| p.name == target.name && p.de == target.de).unwrap_or(0)
+}
+
+// ─── DE Install/Remove (Threaded) ──────────────────────────────────────────────
+
+fn run_apt_install(packages: &[&str]) -> Result<String, String> {
+    let mut cmd = Command::new("pkexec");
+    cmd.arg("apt").arg("install").arg("-y");
+    for pkg in packages {
+        cmd.arg(pkg);
+    }
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    match cmd.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            if output.status.success() {
+                Ok(stdout)
+            } else {
+                Err(format!("{}\n{}", stderr, stdout))
+            }
+        }
+        Err(e) => Err(format!("Failed to run pkexec: {}", e)),
+    }
+}
+
+fn run_apt_remove(packages: &[&str]) -> Result<String, String> {
+    let mut cmd = Command::new("pkexec");
+    cmd.arg("apt").arg("remove").arg("-y");
+    for pkg in packages {
+        cmd.arg(pkg);
+    }
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    match cmd.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            if output.status.success() {
+                Ok(stdout)
+            } else {
+                Err(format!("{}\n{}", stderr, stdout))
+            }
+        }
+        Err(e) => Err(format!("Failed to run pkexec: {}", e)),
+    }
+}
+
+fn start_install(de_index: usize, ui: &AppWindow) {
+    if de_index >= DE_LIST.len() {
+        return;
+    }
+    let de_def = &DE_LIST[de_index];
+    let meta_pkg = de_def.meta_package.to_string();
+    let fallback: Vec<String> = de_def.fallback_packages.iter().map(|s| s.to_string()).collect();
+
+    // Set installing state
+    {
+        let model_rc = ui.get_de_store_items();
+        let mut items: Vec<DeStoreItem> = (0..model_rc.row_count())
+            .filter_map(|i| model_rc.row_data(i))
+            .collect();
+        if let Some(item) = items.get_mut(de_index) {
+            item.is_installing = true;
+            item.install_status = "Installing...".into();
+        }
+        ui.set_de_store_items(ModelRc::new(VecModel::from(items)));
+    }
+
+    let ui_weak = ui.as_weak();
+
+    thread::spawn(move || {
+        let result = run_apt_install(&[&meta_pkg]);
+
+        let (success, status_text) = match result {
+            Ok(_) => (true, "Install complete!".to_string()),
+            Err(_e) => {
+                // Try fallback packages
+                let fallback_refs: Vec<&str> = fallback.iter().map(|s| s.as_str()).collect();
+                match run_apt_install(&fallback_refs) {
+                    Ok(_) => (true, "Installed with alternative packages".to_string()),
+                    Err(fb_err) => (false, format!("Installation failed: {}", fb_err)),
+                }
+            }
+        };
+
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let model_rc = ui.get_de_store_items();
+                let mut items: Vec<DeStoreItem> = (0..model_rc.row_count())
+                    .filter_map(|i| model_rc.row_data(i))
+                    .collect();
+                if let Some(item) = items.get_mut(de_index) {
+                    item.is_installing = false;
+                    item.is_installed = success;
+                    item.install_status = status_text.into();
+                }
+                ui.set_de_store_items(ModelRc::new(VecModel::from(items)));
+
+                // Refresh installed DEs
+                let installed = detect_installed_des();
+                let mut config = load_config();
+                config.installed_des = installed.clone();
+                let _ = save_config(&config);
+
+                // Refresh profiles display
+                let profiles = load_profiles();
+                ui.set_display_items(ModelRc::new(VecModel::from(build_display_items(&profiles))));
+
+                ui.set_status_message(
+                    if success { "Desktop environment installed successfully".into() }
+                    else { "Installation failed. See details for more info.".into() }
+                );
+                ui.set_status_type(if success { "success".into() } else { "error".into() });
+            }
+        });
+    });
+}
+
+fn start_remove(de_index: usize, ui: &AppWindow) {
+    if de_index >= DE_LIST.len() {
+        return;
+    }
+    let de_def = &DE_LIST[de_index];
+    let meta_pkg = de_def.meta_package.to_string();
+    let fallback: Vec<String> = de_def.fallback_packages.iter().map(|s| s.to_string()).collect();
+
+    // Set removing state
+    {
+        let model_rc = ui.get_de_store_items();
+        let mut items: Vec<DeStoreItem> = (0..model_rc.row_count())
+            .filter_map(|i| model_rc.row_data(i))
+            .collect();
+        if let Some(item) = items.get_mut(de_index) {
+            item.is_installing = true;
+            item.install_status = "Removing...".into();
+        }
+        ui.set_de_store_items(ModelRc::new(VecModel::from(items)));
+    }
+
+    let ui_weak = ui.as_weak();
+
+    thread::spawn(move || {
+        // Try meta package first, then fallback
+        let mut all_pkgs = vec![meta_pkg.as_str()];
+        all_pkgs.extend(fallback.iter().map(|s| s.as_str()));
+
+        let result = run_apt_remove(&all_pkgs);
+        let (success, status_text) = match result {
+            Ok(_) => (true, "Removal complete".to_string()),
+            Err(e) => (false, format!("Removal failed: {}", e)),
+        };
+
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let model_rc = ui.get_de_store_items();
+                let mut items: Vec<DeStoreItem> = (0..model_rc.row_count())
+                    .filter_map(|i| model_rc.row_data(i))
+                    .collect();
+                if let Some(item) = items.get_mut(de_index) {
+                    item.is_installing = false;
+                    if success {
+                        item.is_installed = false;
+                    }
+                    item.install_status = status_text.into();
+                }
+                ui.set_de_store_items(ModelRc::new(VecModel::from(items)));
+
+                let installed = detect_installed_des();
+                let mut config = load_config();
+                config.installed_des = installed.clone();
+                let _ = save_config(&config);
+
+                let profiles = load_profiles();
+                ui.set_display_items(ModelRc::new(VecModel::from(build_display_items(&profiles))));
+
+                ui.set_status_message(
+                    if success { "Desktop environment removed".into() }
+                    else { "Removal failed.".into() }
+                );
+                ui.set_status_type(if success { "success".into() } else { "error".into() });
+            }
+        });
+    });
+}
+
+// ─── File Browser ──────────────────────────────────────────────────────────────
+
+fn browse_file() -> String {
+    let output = Command::new("zenity")
+        .args([
+            "--file-selection",
+            "--file-filter=Images | *.png *.jpg *.jpeg *.webp",
+        ])
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            } else {
+                String::new()
+            }
+        }
+        Err(_) => String::new(),
+    }
+}
+
+// ─── Conflict Isolation (kept from v1) ─────────────────────────────────────────
 
 fn get_de_config_conflicts(de_name: &str) -> Vec<String> {
     let lower = de_name.to_lowercase();
+    let mut conflicts = Vec::new();
     if lower.contains("gnome") {
-        vec![
-            "kde".to_string(),
-            "plasma".to_string(),
-            "xfce4".to_string(),
-            "cosmic".to_string(),
-        ]
+        conflicts.extend_from_slice(&["kde".into(), "plasma".into(), "xfce4".into()]);
     } else if lower.contains("kde") || lower.contains("plasma") {
-        vec![
-            "gnome".to_string(),
-            "xfce4".to_string(),
-            "cosmic".to_string(),
-        ]
+        conflicts.extend_from_slice(&["gnome".into(), "xfce4".into()]);
     } else if lower.contains("xfce") {
-        vec![
-            "gnome".to_string(),
-            "kde".to_string(),
-            "plasma".to_string(),
-            "cosmic".to_string(),
-        ]
+        conflicts.extend_from_slice(&["gnome".into(), "kde".into(), "plasma".into()]);
     } else if lower.contains("cinnamon") {
-        vec![
-            "gnome".to_string(),
-            "kde".to_string(),
-            "plasma".to_string(),
-            "cosmic".to_string(),
-        ]
+        conflicts.extend_from_slice(&["gnome".into(), "kde".into(), "plasma".into()]);
     } else if lower.contains("mate") {
-        vec![
-            "gnome".to_string(),
-            "kde".to_string(),
-            "plasma".to_string(),
-            "cosmic".to_string(),
-        ]
+        conflicts.extend_from_slice(&["gnome".into(), "kde".into(), "plasma".into()]);
     } else if lower.contains("cosmic") {
-        vec![
-            "gnome".to_string(),
-            "kde".to_string(),
-            "plasma".to_string(),
-            "xfce4".to_string(),
-            "cinnamon".to_string(),
-        ]
-    } else {
-        vec![]
+        conflicts.extend_from_slice(&["gnome".into(), "kde".into(), "plasma".into(), "xfce4".into(), "cinnamon".into()]);
     }
+    conflicts
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -573,7 +748,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error::
 fn backup_conflicting_configs(target_de: &str) -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     let config_dir = home.join(".config");
-    let backup_dir = home.join(".config/shapeshifter/de_backups");
+    let backup_dir = get_shapeshifter_dir().join("de_backups");
     fs::create_dir_all(&backup_dir)?;
 
     let conflicts = get_de_config_conflicts(target_de);
@@ -581,7 +756,7 @@ fn backup_conflicting_configs(target_de: &str) -> Result<(), Box<dyn std::error:
         let source = config_dir.join(&conflict);
         if source.exists() {
             let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-            let backup_path = backup_dir.join(std::format!("{}_{}", conflict, timestamp));
+            let backup_path = backup_dir.join(format!("{}_{}", conflict, timestamp));
             copy_dir_recursive(&source, &backup_path)?;
         }
     }
@@ -590,7 +765,7 @@ fn backup_conflicting_configs(target_de: &str) -> Result<(), Box<dyn std::error:
 
 fn restore_de_configs(de_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    let backup_dir = home.join(".config/shapeshifter/de_backups");
+    let backup_dir = get_shapeshifter_dir().join("de_backups");
     let config_dir = home.join(".config");
 
     let config_to_restore = match de_name.to_lowercase().as_str() {
@@ -604,28 +779,26 @@ fn restore_de_configs(de_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if let Some(config_name) = config_to_restore {
+        if !backup_dir.exists() {
+            return Ok(());
+        }
         let entries = fs::read_dir(&backup_dir)?;
         let mut latest_backup: Option<(PathBuf, std::time::SystemTime)> = None;
 
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
-            if name_str.starts_with(&std::format!("{}_", config_name)) {
+            if name_str.starts_with(&format!("{}_", config_name)) {
                 if let Ok(meta) = entry.metadata() {
-                    if let Some((_, latest_time)) = latest_backup {
-                        if meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                            > latest_time
-                        {
-                            latest_backup = Some((
-                                entry.path(),
-                                meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
-                            ));
+                    let mod_time = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    match latest_backup {
+                        Some((_, ref latest_time)) if mod_time > *latest_time => {
+                            latest_backup = Some((entry.path(), mod_time));
                         }
-                    } else {
-                        latest_backup = Some((
-                            entry.path(),
-                            meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
-                        ));
+                        None => {
+                            latest_backup = Some((entry.path(), mod_time));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -642,1334 +815,326 @@ fn restore_de_configs(de_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// ─── Session Management ────────────────────────────────────────────────────────
+
+fn get_de_exec_name(de_display_name: &str) -> Option<String> {
+    let session_paths = vec![
+        "/usr/share/xsessions",
+        "/usr/local/share/xsessions",
+        "/usr/share/wayland-sessions",
+        "/usr/local/share/wayland-sessions",
+    ];
+
+    for path in &session_paths {
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                if let Ok(content) = fs::read_to_string(entry.path()) {
+                    let mut name_matches = false;
+                    let mut exec_line = None;
+
+                    for line in content.lines() {
+                        if line.starts_with("Name=") && line.trim_start_matches("Name=") == de_display_name {
+                            name_matches = true;
+                        }
+                        if line.starts_with("Exec=") {
+                            exec_line = Some(line.trim_start_matches("Exec=").to_string());
+                        }
+                    }
+
+                    if name_matches && exec_line.is_some() {
+                        return exec_line;
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn set_default_session(de_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     let dmrc_path = home.join(".dmrc");
 
     if let Some(exec_name) = get_de_exec_name(de_name) {
         let session_name = exec_name.split_whitespace().next().unwrap_or(de_name);
-        let dmrc_content = std::format!("[Desktop]\nSession={}\n", session_name);
+        let dmrc_content = format!("[Desktop]\nSession={}\n", session_name);
         fs::write(&dmrc_path, dmrc_content)?;
 
         let username = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
-        let accountsservice_path = std::format!("/var/lib/AccountsService/users/{}", username);
+        let accountsservice_path = format!("/var/lib/AccountsService/users/{}", username);
 
         if Path::new(&accountsservice_path).exists() {
-            // Try pkexec first (GUI-friendly), fall back to sudo, then direct write
-            let sed_cmd = std::format!("s/^XSession=.*/XSession={}/", session_name);
-            let result = Command::new("pkexec")
+            let sed_cmd = format!("s/^XSession=.*/XSession={}/", session_name);
+            let _ = Command::new("pkexec")
                 .args(["sed", "-i", &sed_cmd, &accountsservice_path])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status();
-
-            if result.is_err() || !result.unwrap().success() {
-                // Fallback: try sudo
-                let sudo_result = Command::new("sudo")
-                    .args(["sed", "-i", &sed_cmd, &accountsservice_path])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-
-                if sudo_result.is_err() || !sudo_result.unwrap().success() {
-                    // Last resort: try direct write if we have permission
-                    if let Ok(content) = fs::read_to_string(&accountsservice_path) {
-                        let modified = content.lines()
-                            .map(|line| {
-                                if line.starts_with("XSession=") {
-                                    std::format!("XSession={}", session_name)
-                                } else {
-                                    line.to_string()
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        let _ = fs::write(&accountsservice_path, modified);
-                    }
-                }
-            }
         }
     }
     Ok(())
 }
 
-fn collect_config_files(config: &AppConfig) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-
-    for item in &config.backup_items {
-        if !item.enabled {
-            continue;
-        }
-
-        // Special handling for dConf settings (dconf dump)
-        if item.path.starts_with("dconf://") || item.path == "dconf dump /" {
-            let dconf_output = Command::new("dconf")
-                .args(["dump", "/"])
-                .output();
-            if let Ok(output) = dconf_output {
-                if output.status.success() {
-                    let temp_dir = home.join(".config/shapeshifter/temp");
-                    let _ = fs::create_dir_all(&temp_dir);
-                    let dconf_file = temp_dir.join("dconf-settings.ini");
-                    if fs::write(&dconf_file, &output.stdout).is_ok() {
-                        files.push(dconf_file.to_path_buf());
-                    }
-                }
-            }
-            continue;
-        }
-
-        for path in resolve_path(&item.path) {
-            if path.exists() {
-                files.push(path);
-            }
-        }
+#[allow(dead_code)]
+fn normalize_remote_target(input: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Remote target cannot be empty".into());
     }
-
-    // Also include GNOME extension version-specific directories
-    let gnome_ext_base = home.join(".local/share/gnome-shell/extensions");
-    if gnome_ext_base.exists() {
-        if let Ok(entries) = fs::read_dir(&gnome_ext_base) {
-            for entry in entries.flatten() {
-                let ext_path = entry.path();
-                if ext_path.is_dir() {
-                    // Check for version subdirectory (e.g., extension@author/40/, 3.38/, etc.)
-                    if let Ok(sub_entries) = fs::read_dir(&ext_path) {
-                        for sub_entry in sub_entries.flatten() {
-                            if sub_entry.file_type().map_or(false, |t| t.is_dir()) {
-                                // This is a version subdirectory, the parent already covers it
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("file://")
+        || trimmed.starts_with('/')
+    {
+        return Ok(trimmed.to_string());
     }
-
-    // Always include common dotfiles
-    let dotfiles = vec![
-        ".bashrc",
-        ".zshrc",
-        ".profile",
-        ".Xresources",
-        ".xsettingsd",
-    ];
-    for dotfile in dotfiles {
-        let p = home.join(dotfile);
-        if p.exists() && !files.contains(&p) {
-            files.push(p);
-        }
-    }
-
-    files
+    Err("Remote target must be an http(s) URL, file:// URL, or absolute path".into())
 }
 
-fn create_profile_archive(
-    profile_name: &str,
-    config: &AppConfig,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let profile_dir = Path::new(&config.profiles_dir).join(profile_name);
-    fs::create_dir_all(&profile_dir)?;
+// ─── CLI: Session Restore ──────────────────────────────────────────────────────
 
-    let archive_path = profile_dir.join("configs.tar.gz");
-    let config_files = collect_config_files(config);
+fn restore_session() {
+    let current_de = get_current_desktop_environment();
+    let shapeshifter_dir = get_shapeshifter_dir();
+    let last_profile_path = shapeshifter_dir.join("last-profile.json");
 
-    if !config_files.is_empty() {
-        let tar_file = fs::File::create(&archive_path)?;
-        let enc = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
-        let mut tar_builder = tar::Builder::new(enc);
+    if !last_profile_path.exists() {
+        eprintln!("Shapeshifter: No last profile found, nothing to restore");
+        return;
+    }
 
-        for src_path in &config_files {
-            if src_path.is_dir() {
-                if let Some(name) = src_path.file_name() {
-                    tar_builder.append_dir_all(name, src_path)?;
-                }
-            } else if src_path.is_file() {
-                if let Some(name) = src_path.file_name() {
-                    let mut file = fs::File::open(src_path)?;
-                    tar_builder.append_file(name, &mut file)?;
-                }
-            }
+    let content = match fs::read_to_string(&last_profile_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Shapeshifter: Failed to read last profile: {}", e);
+            return;
         }
-
-        tar_builder.finish()?;
-    }
-
-    Ok(archive_path)
-}
-
-fn load_profiles(profiles_dir: &str) -> Vec<Profile> {
-    let path = Path::new(profiles_dir);
-    let mut profiles = Vec::new();
-
-    if !path.exists() {
-        return profiles;
-    }
-
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            if entry.file_type().map_or(false, |t| t.is_dir()) {
-                let profile_file = entry.path().join("profile.json");
-                if profile_file.exists() {
-                    if let Ok(content) = fs::read_to_string(profile_file) {
-                        if let Ok(profile) = serde_json::from_str::<Profile>(&content) {
-                            profiles.push(profile);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    profiles.sort_by(|a, b| b.created.cmp(&a.created));
-    profiles
-}
-
-fn create_profile(
-    name: String,
-    save_remote: bool,
-    config: &AppConfig,
-) -> Result<Profile, Box<dyn std::error::Error>> {
-    if name.trim().is_empty() {
-        return Err("Profile name cannot be empty".into());
-    }
-
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err("Profile name cannot contain path separators".into());
-    }
-
-    let profile_dir = Path::new(&config.profiles_dir).join(&name);
-    if profile_dir.exists() {
-        return Err(std::format!("Profile '{}' already exists", name).into());
-    }
-
-    let packages = get_installed_packages();
-
-    let _ = create_profile_archive(&name, config);
-
-    let profile = Profile {
-        name: name.clone(),
-        created: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-        desktop_environment: get_current_desktop_environment(),
-        packages,
-        is_remote: save_remote,
-        backup_items: config
-            .backup_items
-            .iter()
-            .filter(|i| i.enabled)
-            .map(|i| i.name.clone())
-            .collect(),
-        config_archive: "configs.tar.gz".to_string(),
     };
 
-    fs::create_dir_all(&profile_dir)?;
-    let profile_file = profile_dir.join("profile.json");
-    let json = serde_json::to_string_pretty(&profile)?;
-    fs::write(profile_file, json)?;
+    let last_profile: LastProfile = match serde_json::from_str(&content) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Shapeshifter: Failed to parse last profile: {}", e);
+            return;
+        }
+    };
 
-    if save_remote && !config.remote_url.trim().is_empty() {
-        let _ = upload_profile(&profile, &config.remote_url);
-    }
+    // Determine which profile to restore
+    let (target_de, target_name) = if current_de.eq_ignore_ascii_case(&last_profile.de) {
+        (last_profile.de.clone(), last_profile.name.clone())
+    } else {
+        // Current DE differs: look for most recent profile for current DE
+        let profiles = load_profiles();
+        let matching: Vec<&Profile> = profiles.iter()
+            .filter(|p| p.de.eq_ignore_ascii_case(&current_de))
+            .collect();
 
-    Ok(profile)
-}
+        if matching.is_empty() {
+            eprintln!("Shapeshifter: No profile found for {}", current_de);
+            return;
+        }
+        (matching[0].de.clone(), matching[0].name.clone())
+    };
 
-fn rename_profile(
-    old_name: &str,
-    new_name: &str,
-    config: &AppConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if new_name.trim().is_empty() {
-        return Err("Profile name cannot be empty".into());
-    }
-    if new_name.contains('/') || new_name.contains('\\') || new_name.contains("..") {
-        return Err("Profile name cannot contain path separators".into());
-    }
+    let isolation_log = get_shapeshifter_dir().join("isolation.log");
+    let _ = fs::write(&isolation_log, format!("Restoring {} / {} for {}\n", target_de, target_name, current_de));
 
-    let old_dir = Path::new(&config.profiles_dir).join(old_name);
-    let new_dir = Path::new(&config.profiles_dir).join(new_name);
-
-    if !old_dir.exists() {
-        return Err(std::format!("Profile '{}' not found", old_name).into());
-    }
-    if new_dir.exists() {
-        return Err(std::format!("Profile '{}' already exists", new_name).into());
-    }
-
-    fs::rename(&old_dir, &new_dir)?;
-
-    // Update the profile.json name field
-    let profile_file = new_dir.join("profile.json");
-    if let Ok(content) = fs::read_to_string(&profile_file) {
-        if let Ok(mut profile) = serde_json::from_str::<Profile>(&content) {
-            profile.name = new_name.to_string();
-            let json = serde_json::to_string_pretty(&profile)?;
-            fs::write(&profile_file, json)?;
+    match restore_profile(&target_de, &target_name) {
+        Ok(msg) => {
+            let _ = fs::write(&isolation_log, format!("Success: {}\n", msg));
+        }
+        Err(e) => {
+            let _ = fs::write(&isolation_log, format!("Failed: {}\n", e));
+            eprintln!("Shapeshifter: Restore failed: {}", e);
         }
     }
-
-    Ok(())
 }
 
-fn update_profile_remote_status(
-    profile_name: &str,
-    is_remote: bool,
-    config: &AppConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let profile_dir = Path::new(&config.profiles_dir).join(profile_name);
-    let profile_file = profile_dir.join("profile.json");
+// ─── Main ──────────────────────────────────────────────────────────────────────
 
-    if let Ok(content) = fs::read_to_string(&profile_file) {
-        if let Ok(mut profile) = serde_json::from_str::<Profile>(&content) {
-            profile.is_remote = is_remote;
-            let json = serde_json::to_string_pretty(&profile)?;
-            fs::write(&profile_file, json)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn upload_profile(profile: &Profile, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let normalized = normalize_remote_target(url)?;
-
-    if normalized.starts_with("file://") || normalized.starts_with('/') {
-        let base_path = if let Some(path) = normalized.strip_prefix("file://") {
-            PathBuf::from(path)
-        } else {
-            PathBuf::from(&normalized)
-        };
-        fs::create_dir_all(&base_path)?;
-        let file_name = std::format!(
-            "{}-{}.json",
-            profile.name,
-            profile.created.replace([' ', ':'], "_")
-        );
-        let remote_file = base_path.join(file_name);
-        fs::write(remote_file, serde_json::to_string_pretty(profile)?)?;
+fn main() -> Result<(), slint::PlatformError> {
+    // Check for CLI mode
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "--restore-session" {
+        restore_session();
         return Ok(());
     }
 
-    let client = reqwest::blocking::Client::new();
-    let body = serde_json::to_string_pretty(profile)?;
-    let response = client
-        .post(&normalized)
-        .header("content-type", "application/json")
-        .body(body)
-        .send()?;
-
-    if response.status().is_success() {
-        Ok(())
-    } else {
-        Err(std::format!(
-            "Remote server rejected profile upload: {}",
-            response.status()
-        )
-        .into())
-    }
-}
-
-fn apply_profile(
-    profile: &Profile,
-    config: &AppConfig,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let current_de = get_current_desktop_environment();
-    let mut messages = Vec::new();
-
-    if current_de != profile.desktop_environment {
-        backup_conflicting_configs(&profile.desktop_environment)?;
-        restore_de_configs(&profile.desktop_environment)?;
-        set_default_session(&profile.desktop_environment)?;
-        messages.push(std::format!(
-            "Desktop will switch to {} on next login",
-            profile.desktop_environment
-        ));
-    }
-
-    let profile_dir = Path::new(&config.profiles_dir).join(&profile.name);
-    let archive_path = profile_dir.join("configs.tar.gz");
-    if archive_path.exists() {
-        let tar_file = fs::File::open(&archive_path)?;
-        let dec = flate2::read::GzDecoder::new(tar_file);
-        let mut archive = tar::Archive::new(dec);
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-        archive.unpack(&home)?;
-        messages.push("Configuration files restored".to_string());
-    }
-
-    let current_packages = get_installed_packages();
-    let to_install: Vec<_> = profile
-        .packages
-        .iter()
-        .filter(|p| !current_packages.contains(p))
-        .collect();
-
-    if !to_install.is_empty() {
-        let pkg_list: Vec<&str> = to_install.iter().map(|s| s.as_str()).collect();
-        let mut install_failed = false;
-        for chunk in pkg_list.chunks(100) {
-            let mut cmd = Command::new("sudo");
-            cmd.arg("apt").arg("install").arg("-y").arg("-qq");
-            for pkg in chunk {
-                cmd.arg(pkg);
-            }
-            match cmd.output() {
-                Ok(output) => {
-                    if !output.status.success() {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        let stdout = String::from_utf8_lossy(&output.stdout);
-                        eprintln!("apt install failed: {}\n{}", stderr, stdout);
-                        install_failed = true;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to run apt install: {}", e);
-                    install_failed = true;
-                }
-            }
-        }
-        if install_failed {
-            messages.push(std::format!(
-                "Attempted to install {} packages (some may have failed)",
-                to_install.len()
-            ));
-        } else {
-            messages.push(std::format!(
-                "Installed {} missing packages",
-                to_install.len()
-            ));
-        }
-    }
-
-    if messages.is_empty() {
-        messages.push("Profile applied successfully".to_string());
-    }
-
-    Ok(messages.join(". "))
-}
-
-fn delete_profile(name: &str, config: &AppConfig) -> Result<(), Box<dyn std::error::Error>> {
-    let profile_dir = Path::new(&config.profiles_dir).join(name);
-    if profile_dir.exists() {
-        fs::remove_dir_all(profile_dir)?;
-    }
-    Ok(())
-}
-
-fn export_profile(name: &str, config: &AppConfig) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let profile_dir = Path::new(&config.profiles_dir).join(name);
-    if !profile_dir.exists() {
-        return Err(std::format!("Profile directory not found: {:?}", profile_dir).into());
-    }
-
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    let tarball_path = home.join(std::format!("{}.tar.gz", name));
-
-    let tar_file = fs::File::create(&tarball_path)?;
-    let enc = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
-    let mut tar_builder = tar::Builder::new(enc);
-
-    tar_builder.append_dir_all(name, &profile_dir)?;
-    tar_builder.finish()?;
-
-    Ok(tarball_path)
-}
-
-fn import_profile(
-    tarball_path: &str,
-    config: &AppConfig,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let path = Path::new(tarball_path);
-    if !path.exists() {
-        return Err(std::format!("Archive not found: {}", tarball_path).into());
-    }
-
-    let tar_file = fs::File::open(path)?;
-    let dec = flate2::read::GzDecoder::new(tar_file);
-    let mut archive = tar::Archive::new(dec);
-
-    let profiles_dir = Path::new(&config.profiles_dir);
-    fs::create_dir_all(profiles_dir)?;
-    archive.unpack(profiles_dir)?;
-
-    let profile_name = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("imported")
-        .trim_end_matches(".tar")
-        .to_string();
-
-    Ok(profile_name)
-}
-
-fn switch_de_now(de_name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let current_de = get_current_desktop_environment();
-    if current_de == de_name {
-        return Ok("Already running this desktop environment".to_string());
-    }
-
-    set_default_session(de_name)?;
-
-    Ok(std::format!(
-        "Desktop environment will switch to {} on next login.\nTo switch now: save your work, log out, and log back in.",
-        de_name
-    ))
-}
-
-fn apply_conflict_fixes(config: &AppConfig) -> Result<String, Box<dyn std::error::Error>> {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    let current_de = get_current_desktop_environment();
-    let mut applied = Vec::new();
-
-    for fix in &config.conflict_fixes {
-        if !fix.enabled {
-            continue;
-        }
-
-        match fix.apply_fn.as_str() {
-            "icon_theme_isolation" => {
-                let de_dir = home.join(std::format!(
-                    ".config/shapeshifter/de_settings/{}/icon-theme",
-                    current_de.to_lowercase()
-                ));
-                fs::create_dir_all(&de_dir)?;
-                let gtk_settings = home.join(".config/gtk-3.0/settings.ini");
-                if gtk_settings.exists() {
-                    fs::copy(&gtk_settings, de_dir.join("gtk-settings.ini"))?;
-                    applied.push(fix.name.clone());
-                }
-            }
-            "cursor_theme_isolation" => {
-                let de_dir = home.join(std::format!(
-                    ".config/shapeshifter/de_settings/{}/cursor-theme",
-                    current_de.to_lowercase()
-                ));
-                fs::create_dir_all(&de_dir)?;
-                let index_theme = home.join(".icons/default/index.theme");
-                if index_theme.exists() {
-                    fs::copy(&index_theme, de_dir.join("index.theme"))?;
-                    applied.push(fix.name.clone());
-                }
-            }
-            "gtk_theme_isolation" => {
-                let de_dir = home.join(std::format!(
-                    ".config/shapeshifter/de_settings/{}/gtk-theme",
-                    current_de.to_lowercase()
-                ));
-                fs::create_dir_all(&de_dir)?;
-                let gtk_settings = home.join(".config/gtk-3.0/settings.ini");
-                if gtk_settings.exists() {
-                    fs::copy(&gtk_settings, de_dir.join("gtk-settings.ini"))?;
-                    applied.push(fix.name.clone());
-                }
-            }
-            "scaling_isolation" => {
-                let de_dir = home.join(std::format!(
-                    ".config/shapeshifter/de_settings/{}/display",
-                    current_de.to_lowercase()
-                ));
-                fs::create_dir_all(&de_dir)?;
-                let monitors_xml = home.join(".config/monitors.xml");
-                if monitors_xml.exists() {
-                    fs::copy(&monitors_xml, de_dir.join("monitors.xml"))?;
-                    applied.push(fix.name.clone());
-                }
-            }
-            "color_scheme_isolation" => {
-                let de_dir = home.join(std::format!(
-                    ".config/shapeshifter/de_settings/{}/color-scheme",
-                    current_de.to_lowercase()
-                ));
-                fs::create_dir_all(&de_dir)?;
-                let gtk_settings = home.join(".config/gtk-3.0/settings.ini");
-                if gtk_settings.exists() {
-                    fs::copy(&gtk_settings, de_dir.join("gtk-settings.ini"))?;
-                    applied.push(fix.name.clone());
-                }
-            }
-            "menu_cleanup" => {
-                let autostart_dir = home.join(".config/autostart");
-                if autostart_dir.exists() {
-                    let entries = fs::read_dir(&autostart_dir)?;
-                    for entry in entries.flatten() {
-                        if let Ok(content) = fs::read_to_string(entry.path()) {
-                            if content.contains("OnlyShowIn=") && !content.contains(&current_de) {
-                                let hidden_path = entry.path().with_extension("desktop.hidden");
-                                fs::rename(entry.path(), hidden_path)?;
-                            }
-                        }
-                    }
-                    applied.push(fix.name.clone());
-                }
-            }
-            "default_apps_per_de" => {
-                let mimeapps = home.join(".config/mimeapps.list");
-                let defaults = match current_de.to_lowercase().as_str() {
-                    name if name.contains("gnome") => Some("[Default Applications]\norg.gnome.Terminal.desktop;\norg.gnome.Nautilus.desktop;\norg.gnome.TextEditor.desktop;\n"),
-                    name if name.contains("kde") || name.contains("plasma") => Some("[Default Applications]\norg.kde.konsole.desktop;\norg.kde.dolphin.desktop;\norg.kde.kate.desktop;\n"),
-                    name if name.contains("xfce") => Some("[Default Applications]\nxfce4-terminal.desktop;\nThunar.desktop;\nmousepad.desktop;\n"),
-                    _ => None,
-                };
-                if let Some(default_content) = defaults {
-                    fs::write(&mimeapps, default_content)?;
-                    applied.push(fix.name.clone());
-                }
-            }
-            "hide_kde_in_gnome" => {
-                hide_apps_by_keyword(&home, &["kde", "plasma", "org.kde"], &current_de)?;
-                applied.push(fix.name.clone());
-            }
-            "hide_gnome_in_kde" => {
-                hide_apps_by_keyword(&home, &["gnome", "org.gnome"], &current_de)?;
-                applied.push(fix.name.clone());
-            }
-            "autostart_isolation" => {
-                let de_autostart = home.join(std::format!(
-                    ".config/shapeshifter/de_settings/{}/autostart",
-                    current_de.to_lowercase()
-                ));
-                let user_autostart = home.join(".config/autostart");
-                if user_autostart.exists() {
-                    fs::create_dir_all(&de_autostart)?;
-                    copy_dir_recursive(&user_autostart, &de_autostart)?;
-                    applied.push(fix.name.clone());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if applied.is_empty() {
-        Ok("No conflict fixes were enabled".to_string())
-    } else {
-        Ok(std::format!(
-            "Applied {} fixes: {}",
-            applied.len(),
-            applied.join(", ")
-        ))
-    }
-}
-
-fn hide_apps_by_keyword(
-    home: &PathBuf,
-    keywords: &[&str],
-    current_de: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let local_apps = home
-        .join(".local/share/applications")
-        .to_string_lossy()
-        .to_string();
-    let app_dirs: Vec<&str> = vec![
-        "/usr/share/applications",
-        "/usr/local/share/applications",
-        &local_apps,
-    ];
-
-    for dir in app_dirs {
-        let dir_path = Path::new(&dir);
-        if !dir_path.exists() {
-            continue;
-        }
-        if let Ok(entries) = fs::read_dir(dir_path) {
-            for entry in entries.flatten() {
-                if let Some(ext) = entry.path().extension() {
-                    if ext != "desktop" {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-
-                if let Ok(content) = fs::read_to_string(entry.path()) {
-                    let lower_content = content.to_lowercase();
-                    let matches = keywords.iter().any(|kw| lower_content.contains(kw));
-                    let only_shows_in = content.contains("OnlyShowIn=");
-                    let not_shows_in = content.contains("NotShowIn=");
-
-                    if matches && !only_shows_in && !not_shows_in {
-                        let mut modified = content.clone();
-                        modified.push_str(&std::format!("\nNotShowIn={};\n", current_de));
-                        fs::write(entry.path(), modified)?;
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn run_folder_backup(source: &str, dest: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let src = Path::new(source);
-    let dst = Path::new(dest);
-
-    if !src.exists() {
-        return Err(std::format!("Source path does not exist: {}", source).into());
-    }
-
-    fs::create_dir_all(dst)?;
-
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-    let dest_path = dst.join(src.file_name().unwrap_or(std::ffi::OsStr::new("backup")));
-    let final_dest = if dest_path.exists() {
-        let renamed = dst.join(std::format!(
-            "{}_{}",
-            src.file_name()
-                .unwrap_or(std::ffi::OsStr::new("backup"))
-                .to_string_lossy(),
-            timestamp
-        ));
-        copy_dir_recursive(src, &renamed)?;
-        renamed
-    } else {
-        copy_dir_recursive(src, &dest_path)?;
-        dest_path
-    };
-
-    Ok(std::format!(
-        "Backed up {} to {}",
-        source,
-        final_dest.display()
-    ))
-}
-
-fn profile_to_ui(p: &Profile) -> ProfileData {
-    ProfileData {
-        name: p.name.clone().into(),
-        created: p.created.clone().into(),
-        desktop: p.desktop_environment.clone().into(),
-        is_remote: p.is_remote,
-        package_count: p.packages.len() as i32,
-        config_count: p.backup_items.len() as i32,
-    }
-}
-
-fn de_to_ui(de: &DesktopEnvironment) -> DesktopEnvironmentData {
-    DesktopEnvironmentData {
-        name: de.name.clone().into(),
-        is_current: de.is_current,
-        session_id: de.session_id.clone().into(),
-    }
-}
-
-fn backup_item_to_ui(item: &BackupItemConfig, _index: usize) -> BackupItemData {
-    let paths = resolve_path(&item.path);
-    let size = estimate_path_size(&paths);
-    BackupItemData {
-        name: item.name.clone().into(),
-        path: item.path.clone().into(),
-        enabled: item.enabled,
-        category: item.category.clone().into(),
-        size_estimate: size.into(),
-    }
-}
-
-fn conflict_fix_to_ui(fix: &ConflictFixConfig) -> ConflictFixData {
-    ConflictFixData {
-        name: fix.name.clone().into(),
-        description: fix.description.clone().into(),
-        enabled: fix.enabled,
-        category: fix.category.clone().into(),
-    }
-}
-
-fn folder_backup_to_ui(fb: &FolderBackupEntry) -> FolderBackupData {
-    FolderBackupData {
-        label: fb.label.clone().into(),
-        source_path: fb.source_path.clone().into(),
-        dest_path: fb.dest_path.clone().into(),
-        enabled: fb.enabled,
-    }
-}
-
-fn scheduled_save_to_ui(config: &AppConfig) -> ScheduledSaveData {
-    ScheduledSaveData {
-        label: "Auto-Save Profile".to_string().into(),
-        interval: std::format!("{} hours", config.scheduled_save.interval_hours).into(),
-        enabled: config.scheduled_save.enabled,
-        last_run: if config.scheduled_save.last_run.is_empty() {
-            "Never".to_string().into()
-        } else {
-            config.scheduled_save.last_run.clone().into()
-        },
-    }
-}
-
-fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
     let config = load_config();
+    let installed = if config.installed_des.is_empty() {
+        detect_installed_des()
+    } else {
+        config.installed_des.clone()
+    };
 
+    // Set initial UI state
     let current_de = get_current_desktop_environment();
     let username = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
-    ui.set_current_de(current_de.clone().into());
+    ui.set_current_de(current_de.into());
     ui.set_current_user(username.into());
-    ui.set_remote_url(config.remote_url.clone().into());
-    ui.set_external_backup_path(config.external_backup_path.clone().into());
-    ui.set_auto_save_enabled(config.scheduled_save.enabled);
-    ui.set_auto_save_interval(config.scheduled_save.interval_hours as i32);
     ui.set_application_version(env!("CARGO_PKG_VERSION").into());
+    ui.set_last_remote_path(config.last_remote_path.clone().into());
 
-    let available_des = get_available_desktop_environments();
-    let de_models: Vec<DesktopEnvironmentData> = available_des.iter().map(de_to_ui).collect();
-    ui.set_available_desktops(ModelRc::new(VecModel::from(de_models)));
+    // Initialize DE Store
+    let de_items = build_de_store_items(&installed);
+    ui.set_de_store_items(ModelRc::new(VecModel::from(de_items)));
 
-    let profiles = load_profiles(&config.profiles_dir);
-    let profile_models: Vec<ProfileData> = profiles.iter().map(profile_to_ui).collect();
-    ui.set_profiles(ModelRc::new(VecModel::from(profile_models)));
+    // Initialize Profiles
+    let profiles = load_profiles();
+    ui.set_display_items(ModelRc::new(VecModel::from(build_display_items(&profiles))));
 
-    let backup_items: Vec<BackupItemData> = config
-        .backup_items
-        .iter()
-        .enumerate()
-        .map(|(i, item)| backup_item_to_ui(item, i))
-        .collect();
-    ui.set_backup_items(ModelRc::new(VecModel::from(backup_items)));
-
-    let conflict_fixes: Vec<ConflictFixData> = config
-        .conflict_fixes
-        .iter()
-        .map(conflict_fix_to_ui)
-        .collect();
-    ui.set_conflict_fixes(ModelRc::new(VecModel::from(conflict_fixes)));
-
-    let folder_backups: Vec<FolderBackupData> = config
-        .folder_backups
-        .iter()
-        .map(folder_backup_to_ui)
-        .collect();
-    ui.set_folder_backups(ModelRc::new(VecModel::from(folder_backups)));
-
-    let scheduled = scheduled_save_to_ui(&config);
-    ui.set_scheduled_saves(ModelRc::new(VecModel::from(vec![scheduled])));
+    // ── Callbacks ──────────────────────────────────────────────────────────────
 
     let ui_weak = ui.as_weak();
-    ui.on_save_remote_url(move |url| {
+    ui.on_install_de(move |index| {
         if let Some(ui) = ui_weak.upgrade() {
-            match normalize_remote_target(&url.to_string()) {
-                Ok(normalized) => {
-                    let mut config = load_config();
-                    config.remote_url = normalized.clone();
-                    match save_config(&config) {
-                        Ok(()) => {
-                            ui.set_remote_url(normalized.into());
-                            ui.set_status_message("Remote target saved successfully".into());
+            start_install(index as usize, &ui);
+        }
+    });
+
+    let ui_weak = ui.as_weak();
+    ui.on_remove_de(move |index| {
+        if let Some(ui) = ui_weak.upgrade() {
+            start_remove(index as usize, &ui);
+        }
+    });
+
+    let ui_weak = ui.as_weak();
+    ui.on_confirm_install_de(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            let index = ui.get_confirm_index();
+            if index >= 0 {
+                start_install(index as usize, &ui);
+                ui.set_confirm_index(-1);
+            }
+        }
+    });
+
+    let ui_weak = ui.as_weak();
+    ui.on_confirm_remove_de(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            let index = ui.get_confirm_index();
+            if index >= 0 {
+                start_remove(index as usize, &ui);
+                ui.set_confirm_index(-1);
+            }
+        }
+    });
+
+    let ui_weak = ui.as_weak();
+    ui.on_save_profile(move |name, thumbnail_path, remote_path| {
+        let config = load_config();
+        let de = config.last_profile.clone().map(|lp| lp.de).unwrap_or_else(|| get_current_desktop_environment());
+
+        match save_profile(&name, &de, &thumbnail_path, &remote_path) {
+            Ok(profile) => {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.set_status_message(format!("Profile '{}' saved for {}", profile.name, profile.de).into());
+                    ui.set_status_type("success".into());
+
+                    let profiles = load_profiles();
+                    ui.set_display_items(ModelRc::new(VecModel::from(build_display_items(&profiles))));
+                }
+            }
+            Err(e) => {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.set_status_message(format!("Error saving profile: {}", e).into());
+                    ui.set_status_type("error".into());
+                }
+            }
+        }
+    });
+
+    let ui_weak = ui.as_weak();
+    ui.on_restore_profile(move |index| {
+        let profiles = load_profiles();
+        // Find profile by index in display items
+        let display_items = build_display_items(&profiles);
+        if let Some(item) = display_items.get(index as usize) {
+            if item.item_type == 1 {
+                match restore_profile(&item.profile_de, &item.profile_name) {
+                    Ok(msg) => {
+                        if let Some(ui) = ui_weak.upgrade() {
+                            ui.set_status_message(msg.into());
                             ui.set_status_type("success".into());
                         }
-                        Err(error) => {
-                            ui.set_status_message(
-                                std::format!("Failed to save remote target: {}", error).into(),
-                            );
+                    }
+                    Err(e) => {
+                        if let Some(ui) = ui_weak.upgrade() {
+                            ui.set_status_message(format!("Error restoring profile: {}", e).into());
                             ui.set_status_type("error".into());
                         }
                     }
                 }
-                Err(error) => {
-                    ui.set_status_message(std::format!("Invalid remote target: {}", error).into());
-                    ui.set_status_type("error".into());
-                }
             }
         }
     });
 
     let ui_weak = ui.as_weak();
-    ui.on_create_profile(move |name, save_remote| {
-        let config = load_config();
-        match create_profile(name.to_string(), save_remote, &config) {
-            Ok(profile) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Profile '{}' created successfully", profile.name).into(),
-                    );
-                    ui.set_status_type("success".into());
-                    let profiles = load_profiles(&config.profiles_dir);
-                    let profile_models: Vec<ProfileData> =
-                        profiles.iter().map(profile_to_ui).collect();
-                    ui.set_profiles(ModelRc::new(VecModel::from(profile_models)));
-                }
-            }
-            Err(e) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(std::format!("Error creating profile: {}", e).into());
-                    ui.set_status_type("error".into());
-                }
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_apply_profile(move |index| {
-        let config = load_config();
-        let profiles = load_profiles(&config.profiles_dir);
-        if let Some(profile) = profiles.get(index as usize) {
-            match apply_profile(profile, &config) {
-                Ok(msg) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(msg.into());
-                        ui.set_status_type("success".into());
-                    }
-                }
-                Err(e) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(std::format!("Error applying profile: {}", e).into());
-                        ui.set_status_type("error".into());
-                    }
-                }
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_delete_profile(move |index| {
-        let config = load_config();
-        let profiles = load_profiles(&config.profiles_dir);
-        if let Some(profile) = profiles.get(index as usize) {
-            match delete_profile(&profile.name, &config) {
-                Ok(()) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(
-                            std::format!("Profile '{}' deleted", profile.name).into(),
-                        );
-                        ui.set_status_type("success".into());
-                        let profiles = load_profiles(&config.profiles_dir);
-                        let profile_models: Vec<ProfileData> =
-                            profiles.iter().map(profile_to_ui).collect();
-                        ui.set_profiles(ModelRc::new(VecModel::from(profile_models)));
-                    }
-                }
-                Err(e) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(std::format!("Error deleting profile: {}", e).into());
-                        ui.set_status_type("error".into());
-                    }
-                }
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_export_profile(move |index| {
-        let config = load_config();
-        let profiles = load_profiles(&config.profiles_dir);
-        if let Some(profile) = profiles.get(index as usize) {
-            match export_profile(&profile.name, &config) {
-                Ok(path) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(
-                            std::format!("Profile exported to {}", path.display()).into(),
-                        );
-                        ui.set_status_type("success".into());
-                    }
-                }
-                Err(e) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(
-                            std::format!("Error exporting profile: {}", e).into(),
-                        );
-                        ui.set_status_type("error".into());
-                    }
-                }
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_import_profile(move |path| {
-        let config = load_config();
-        match import_profile(&path.to_string(), &config) {
-            Ok(name) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Profile '{}' imported successfully", name).into(),
-                    );
-                    ui.set_status_type("success".into());
-                    let profiles = load_profiles(&config.profiles_dir);
-                    let profile_models: Vec<ProfileData> =
-                        profiles.iter().map(profile_to_ui).collect();
-                    ui.set_profiles(ModelRc::new(VecModel::from(profile_models)));
-                }
-            }
-            Err(e) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(std::format!("Error importing profile: {}", e).into());
-                    ui.set_status_type("error".into());
-                }
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_switch_desktop(move |index| {
-        let available = get_available_desktop_environments();
-        if let Some(de) = available.get(index as usize) {
-            match switch_de_now(&de.name) {
-                Ok(msg) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(msg.into());
-                        ui.set_status_type("info".into());
-                    }
-                }
-                Err(e) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(
-                            std::format!("Error switching desktop: {}", e).into(),
-                        );
-                        ui.set_status_type("error".into());
-                    }
-                }
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_toggle_backup_item(move |index, enabled| {
-        let mut config = load_config();
-        if let Some(item) = config.backup_items.get_mut(index as usize) {
-            item.enabled = enabled;
-            if let Err(e) = save_config(&config) {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Failed to save backup items config: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
-                return;
-            }
-            if let Some(ui) = ui_weak.upgrade() {
-                let backup_items: Vec<BackupItemData> = config
-                    .backup_items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, item)| backup_item_to_ui(item, i))
-                    .collect();
-                ui.set_backup_items(ModelRc::new(VecModel::from(backup_items)));
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_toggle_conflict_fix(move |index, enabled| {
-        let mut config = load_config();
-        if let Some(fix) = config.conflict_fixes.get_mut(index as usize) {
-            fix.enabled = enabled;
-            if let Err(e) = save_config(&config) {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Failed to save conflict fixes config: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
-                return;
-            }
-            if let Some(ui) = ui_weak.upgrade() {
-                let conflict_fixes: Vec<ConflictFixData> = config
-                    .conflict_fixes
-                    .iter()
-                    .map(conflict_fix_to_ui)
-                    .collect();
-                ui.set_conflict_fixes(ModelRc::new(VecModel::from(conflict_fixes)));
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_add_folder_backup(move |source, dest| {
-        let mut config = load_config();
-        let label = Path::new(&source.to_string())
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "Backup".to_string());
-        config.folder_backups.push(FolderBackupEntry {
-            label,
-            source_path: source.to_string(),
-            dest_path: dest.to_string(),
-            enabled: true,
-        });
-        if let Err(e) = save_config(&config) {
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_status_message(
-                    std::format!("Failed to save folder backup config: {}", e).into(),
-                );
-                ui.set_status_type("error".into());
-            }
-            return;
-        }
+    ui.on_confirm_restore_profile(move || {
         if let Some(ui) = ui_weak.upgrade() {
-            let folder_backups: Vec<FolderBackupData> = config
-                .folder_backups
-                .iter()
-                .map(folder_backup_to_ui)
-                .collect();
-            ui.set_folder_backups(ModelRc::new(VecModel::from(folder_backups)));
-            ui.set_status_message("Folder backup added".into());
-            ui.set_status_type("success".into());
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_remove_folder_backup(move |index| {
-        let mut config = load_config();
-        if (index as usize) < config.folder_backups.len() {
-            config.folder_backups.remove(index as usize);
-            if let Err(e) = save_config(&config) {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Failed to save folder backup config: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
-                return;
-            }
-            if let Some(ui) = ui_weak.upgrade() {
-                let folder_backups: Vec<FolderBackupData> = config
-                    .folder_backups
-                    .iter()
-                    .map(folder_backup_to_ui)
-                    .collect();
-                ui.set_folder_backups(ModelRc::new(VecModel::from(folder_backups)));
-                ui.set_status_message("Folder backup removed".into());
-                ui.set_status_type("success".into());
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_toggle_folder_backup(move |index, enabled| {
-        let mut config = load_config();
-        if let Some(fb) = config.folder_backups.get_mut(index as usize) {
-            fb.enabled = enabled;
-            if let Err(e) = save_config(&config) {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Failed to save folder backup config: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
-                return;
-            }
-            if let Some(ui) = ui_weak.upgrade() {
-                let folder_backups: Vec<FolderBackupData> = config
-                    .folder_backups
-                    .iter()
-                    .map(folder_backup_to_ui)
-                    .collect();
-                ui.set_folder_backups(ModelRc::new(VecModel::from(folder_backups)));
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_run_folder_backup(move |index| {
-        let config = load_config();
-        if let Some(fb) = config.folder_backups.get(index as usize) {
-            match run_folder_backup(&fb.source_path, &fb.dest_path) {
-                Ok(msg) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(msg.into());
-                        ui.set_status_type("success".into());
+            let index = ui.get_confirm_index();
+            if index >= 0 {
+                let profiles = load_profiles();
+                let display_items = build_display_items(&profiles);
+                if let Some(item) = display_items.get(index as usize) {
+                    if item.item_type == 1 {
+                        match restore_profile(&item.profile_de, &item.profile_name) {
+                            Ok(msg) => {
+                                ui.set_status_message(msg.into());
+                                ui.set_status_type("success".into());
+                            }
+                            Err(e) => {
+                                ui.set_status_message(format!("Error restoring profile: {}", e).into());
+                                ui.set_status_type("error".into());
+                            }
+                        }
                     }
                 }
-                Err(e) => {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(std::format!("Backup failed: {}", e).into());
-                        ui.set_status_type("error".into());
+                ui.set_confirm_index(-1);
+            }
+        }
+    });
+
+    let ui_weak = ui.as_weak();
+    ui.on_confirm_delete_profile(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            let index = ui.get_confirm_index();
+            if index >= 0 {
+                let profiles = load_profiles();
+                let display_items = build_display_items(&profiles);
+                if let Some(item) = display_items.get(index as usize) {
+                    if item.item_type == 1 {
+                        match delete_profile(&item.profile_de, &item.profile_name) {
+                            Ok(()) => {
+                                ui.set_status_message(format!("Profile '{}' deleted", item.profile_name).into());
+                                ui.set_status_type("success".into());
+                                let profiles = load_profiles();
+                                ui.set_display_items(ModelRc::new(VecModel::from(build_display_items(&profiles))));
+                            }
+                            Err(e) => {
+                                ui.set_status_message(format!("Error deleting profile: {}", e).into());
+                                ui.set_status_type("error".into());
+                            }
+                        }
                     }
                 }
+                ui.set_confirm_index(-1);
             }
         }
     });
 
     let ui_weak = ui.as_weak();
-    ui.on_toggle_scheduled_save(move |index, enabled| {
-        let mut config = load_config();
-        if index == 0 {
-            config.scheduled_save.enabled = enabled;
-            if let Err(e) = save_config(&config) {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Failed to save auto-save settings: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
-                return;
-            }
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_auto_save_enabled(enabled);
-                let scheduled = scheduled_save_to_ui(&config);
-                ui.set_scheduled_saves(ModelRc::new(VecModel::from(vec![scheduled])));
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_run_now_scheduled_save(move |_index| {
-        let config = load_config();
-        match create_profile(
-            std::format!("Auto-Save {}", Local::now().format("%Y-%m-%d %H:%M")),
-            false,
-            &config,
-        ) {
-            Ok(profile) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Auto-saved profile: {}", profile.name).into(),
-                    );
-                    ui.set_status_type("success".into());
-                    let profiles = load_profiles(&config.profiles_dir);
-                    let profile_models: Vec<ProfileData> =
-                        profiles.iter().map(profile_to_ui).collect();
-                    ui.set_profiles(ModelRc::new(VecModel::from(profile_models)));
-                }
-            }
-            Err(e) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(std::format!("Auto-save failed: {}", e).into());
-                    ui.set_status_type("error".into());
-                }
-            }
-        }
-    });
-
-    // Auto-save background thread
-    let auto_save_ui = ui.as_weak();
-    let auto_save_config = Arc::new(Mutex::new(config.clone()));
-    let auto_save_handle = {
-        let config_ref = Arc::clone(&auto_save_config);
-        thread::spawn(move || {
-            loop {
-                thread::sleep(Duration::from_secs(60)); // Check every minute
-
-                let cfg = {
-                    let config_guard = config_ref.lock().unwrap();
-                    if !config_guard.scheduled_save.enabled {
-                        continue;
-                    }
-                    config_guard.clone()
-                };
-
-                let interval_secs = cfg.scheduled_save.interval_hours as u64 * 3600;
-                if interval_secs == 0 {
-                    continue;
-                }
-
-                // Check if enough time has passed since last run
-                let last_run = if cfg.scheduled_save.last_run.is_empty() {
-                    0
-                } else {
-                    match chrono::DateTime::parse_from_str(
-                        &cfg.scheduled_save.last_run,
-                        "%Y-%m-%d %H:%M:%S",
-                    ) {
-                        Ok(dt) => dt.timestamp() as u64,
-                        Err(_) => 0,
-                    }
-                };
-
-                let now = Local::now().timestamp() as u64;
-                if now.saturating_sub(last_run) < interval_secs {
-                    continue;
-                }
-
-                // Time to auto-save
-                let profile_name = std::format!(
-                    "Auto-Save {}",
-                    Local::now().format("%Y-%m-%d %H:%M")
-                );
-                if let Ok(_profile) = create_profile(profile_name.clone(), false, &cfg) {
-                    // Update last run time
-                    let mut config_guard = config_ref.lock().unwrap();
-                    config_guard.scheduled_save.last_run =
-                        Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                    let _ = save_config(&config_guard);
-
-                    // Update UI
-                    if let Some(ui) = auto_save_ui.upgrade() {
-                        let scheduled = scheduled_save_to_ui(&config_guard);
-                        ui.set_scheduled_saves(ModelRc::new(VecModel::from(vec![scheduled])));
-                        ui.set_status_message(
-                            std::format!("Auto-saved profile: {}", profile_name).into(),
-                        );
-                        ui.set_status_type("success".into());
-                        let profiles = load_profiles(&config_guard.profiles_dir);
-                        let profile_models: Vec<ProfileData> =
-                            profiles.iter().map(profile_to_ui).collect();
-                        ui.set_profiles(ModelRc::new(VecModel::from(profile_models)));
-                    }
-                }
-            }
-        })
-    };
-
-    // Update config when auto-save settings change
-    let auto_save_config_clone = Arc::clone(&auto_save_config);
-    let ui_weak = ui.as_weak();
-    ui.on_save_auto_save_settings(move |enabled, interval| {
-        let mut config = load_config();
-        config.scheduled_save.enabled = enabled;
-        config.scheduled_save.interval_hours = interval as u32;
-        match save_config(&config) {
-            Ok(()) => {
-                // Update the shared config for the auto-save thread
-                let mut config_guard = auto_save_config_clone.lock().unwrap();
-                *config_guard = config.clone();
-
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message("Auto-save settings saved".into());
-                    ui.set_status_type("success".into());
-                    let scheduled = scheduled_save_to_ui(&config);
-                    ui.set_scheduled_saves(ModelRc::new(VecModel::from(vec![scheduled])));
-                }
-            }
-            Err(e) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Failed to save settings: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_save_external_backup_path(move |path| {
-        let mut config = load_config();
-        config.external_backup_path = path.to_string();
-        match save_config(&config) {
-            Ok(()) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_external_backup_path(path);
-                    ui.set_status_message("External backup path saved".into());
-                    ui.set_status_type("success".into());
-                }
-            }
-            Err(e) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Failed to save path: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_apply_conflict_fixes(move || {
-        let config = load_config();
-        match apply_conflict_fixes(&config) {
-            Ok(msg) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(msg.into());
-                    ui.set_status_type("success".into());
-                }
-            }
-            Err(e) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Error applying fixes: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
+    ui.on_browse_thumbnail(move || {
+        let path = browse_file();
+        if let Some(ui) = ui_weak.upgrade() {
+            if !path.is_empty() {
+                // Set thumbnail path is handled via the LineEdit text set by zenity
+                // Since we can't set the LineEdit text directly from Rust (no binding),
+                // we'll notify via status message
+                ui.set_status_message(format!("Selected: {}", path).into());
+                ui.set_status_type("info".into());
             }
         }
     });
@@ -1977,339 +1142,204 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui_weak = ui.as_weak();
     ui.on_refresh_all(move || {
         if let Some(ui) = ui_weak.upgrade() {
-            let available_des = get_available_desktop_environments();
-            let de_models: Vec<DesktopEnvironmentData> =
-                available_des.iter().map(de_to_ui).collect();
-            ui.set_available_desktops(ModelRc::new(VecModel::from(de_models)));
+            let installed = detect_installed_des();
+            let mut config = load_config();
+            config.installed_des = installed.clone();
+            let _ = save_config(&config);
 
-            let profiles = load_profiles(&load_config().profiles_dir);
-            let profile_models: Vec<ProfileData> = profiles.iter().map(profile_to_ui).collect();
-            ui.set_profiles(ModelRc::new(VecModel::from(profile_models)));
+            let de_items = build_de_store_items(&installed);
+            ui.set_de_store_items(ModelRc::new(VecModel::from(de_items)));
+
+            let profiles = load_profiles();
+            ui.set_display_items(ModelRc::new(VecModel::from(build_display_items(&profiles))));
 
             ui.set_status_message("Refreshed desktop environments and profiles".into());
             ui.set_status_type("success".into());
         }
     });
 
-    let ui_weak = ui.as_weak();
-    ui.on_edit_profile(move |index| {
-        let config = load_config();
-        let profiles = load_profiles(&config.profiles_dir);
-        if let Some(profile) = profiles.get(index as usize) {
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_edit_profile_name(profile.name.clone().into());
-                ui.set_edit_profile_remote(profile.is_remote);
-                ui.set_show_edit_dialog(true);
-            }
-        }
-    });
-
-    let ui_weak = ui.as_weak();
-    ui.on_save_edit_profile(move |old_name, new_name, save_remote| {
-        let config = load_config();
-        match rename_profile(&old_name.to_string(), &new_name.to_string(), &config) {
-            Ok(()) => {
-                if let Err(e) = update_profile_remote_status(
-                    &new_name.to_string(),
-                    save_remote,
-                    &config,
-                ) {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_status_message(
-                            std::format!("Failed to update remote status: {}", e).into(),
-                        );
-                        ui.set_status_type("error".into());
-                    }
-                }
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Profile '{}' updated successfully", new_name).into(),
-                    );
-                    ui.set_status_type("success".into());
-                    ui.set_show_edit_dialog(false);
-                    let profiles = load_profiles(&config.profiles_dir);
-                    let profile_models: Vec<ProfileData> =
-                        profiles.iter().map(profile_to_ui).collect();
-                    ui.set_profiles(ModelRc::new(VecModel::from(profile_models)));
-                }
-            }
-            Err(e) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_status_message(
-                        std::format!("Error editing profile: {}", e).into(),
-                    );
-                    ui.set_status_type("error".into());
-                }
-            }
-        }
-    });
-
-    // Detach auto-save thread so it doesn't block UI shutdown
-    drop(auto_save_handle);
-
     ui.run()
 }
+
+// ─── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn create_test_config(profiles_dir: &str) -> AppConfig {
-        AppConfig {
-            remote_url: String::new(),
-            profiles_dir: profiles_dir.to_string(),
-            backup_items: default_backup_items(),
-            conflict_fixes: default_conflict_fixes(),
-            folder_backups: Vec::new(),
-            scheduled_save: ScheduledSaveConfig {
-                enabled: false,
-                interval_hours: 24,
-                last_run: String::new(),
-            },
-            external_backup_path: String::new(),
+    fn setup_test_env() -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().to_path_buf();
+        std::env::set_var("HOME", home.to_str().unwrap());
+        std::env::set_var("XDG_CURRENT_DESKTOP", "TestDE");
+        (tmp, home)
+    }
+
+    #[test]
+    fn test_de_definitions_complete() {
+        assert_eq!(DE_LIST.len(), 13);
+        let names: Vec<&str> = DE_LIST.iter().map(|d| d.name).collect();
+        assert!(names.contains(&"Plasma"));
+        assert!(names.contains(&"GNOME"));
+        assert!(names.contains(&"XFCE"));
+        assert!(names.contains(&"Sway"));
+        assert!(names.contains(&"i3"));
+    }
+
+    #[test]
+    fn test_de_backup_paths_not_empty() {
+        for de_def in DE_LIST {
+            let paths = get_de_backup_paths(de_def.name);
+            assert!(!paths.is_empty(), "DE '{}' has no backup paths", de_def.name);
         }
     }
 
     #[test]
-    fn test_resolve_path_expands_home() {
-        let home = dirs::home_dir().unwrap();
-        let result = resolve_path("$HOME/.bashrc");
-        assert!(!result.is_empty());
-        assert!(result[0].starts_with(&home));
+    fn test_shared_backup_paths_not_empty() {
+        let paths = get_shared_backup_paths();
+        assert!(!paths.is_empty());
+        assert!(paths.contains(&".themes/"));
+        assert!(paths.contains(&".icons/"));
     }
 
     #[test]
-    fn test_resolve_path_comma_separated() {
-        let result = resolve_path("$HOME/.bashrc, $HOME/.zshrc");
-        assert_eq!(result.len(), 2);
+    fn test_app_config_default() {
+        let config = AppConfig::default();
+        assert_eq!(config.version, 2);
+        assert!(config.last_remote_path.is_empty());
+        assert!(config.installed_des.is_empty());
+        assert!(config.last_profile.is_none());
     }
 
     #[test]
-    fn test_resolve_path_empty_input() {
-        let result = resolve_path("");
-        assert!(result.is_empty());
+    fn test_save_and_load_profile() {
+        let (_tmp, _home) = setup_test_env();
+
+        let profile = save_profile("Test Profile", "Plasma", "", "").unwrap();
+        assert_eq!(profile.name, "Test Profile");
+        assert_eq!(profile.de, "Plasma");
+        assert!(!profile.created.is_empty());
+
+        let loaded = load_profiles();
+        assert!(!loaded.is_empty());
+        assert_eq!(loaded[0].name, "Test Profile");
     }
 
     #[test]
-    fn test_resolve_path_custom_variables() {
-        let result = resolve_path("$CONFIG_DIR/test, $SHARE_DIR/app");
-        assert_eq!(result.len(), 2);
-        assert!(result[0].to_string_lossy().contains(".config"));
-        assert!(result[1].to_string_lossy().contains(".local/share"));
-    }
+    fn test_save_profile_duplicate_fails() {
+        let (_tmp, _home) = setup_test_env();
 
-    #[test]
-    fn test_normalize_remote_target_http() {
-        let result = normalize_remote_target("https://backup.example.com/profiles");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "https://backup.example.com/profiles");
-    }
-
-    #[test]
-    fn test_normalize_remote_target_file() {
-        let result = normalize_remote_target("file:///mnt/backup");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "file:///mnt/backup");
-    }
-
-    #[test]
-    fn test_normalize_remote_target_absolute_path() {
-        let result = normalize_remote_target("/mnt/backup");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "/mnt/backup");
-    }
-
-    #[test]
-    fn test_normalize_remote_target_empty_fails() {
-        let result = normalize_remote_target("");
+        save_profile("Dup", "Plasma", "", "").unwrap();
+        let result = save_profile("Dup", "Plasma", "", "");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_normalize_remote_target_invalid_scheme() {
-        let result = normalize_remote_target("ftp://server.com");
-        assert!(result.is_err());
-    }
+    fn test_save_profile_invalid_name() {
+        let (_tmp, _home) = setup_test_env();
 
-    #[test]
-    fn test_create_profile_name_validation() {
-        let temp_dir = tempdir().unwrap();
-        let config = create_test_config(temp_dir.path().to_str().unwrap());
-
-        // Empty name should fail
-        let result = create_profile("".to_string(), false, &config);
+        let result = save_profile("", "Plasma", "", "");
         assert!(result.is_err());
 
-        // Name with path separator should fail
-        let result = create_profile("my/profile".to_string(), false, &config);
+        let result = save_profile("test/path", "Plasma", "", "");
         assert!(result.is_err());
-
-        // Name with backslash should fail
-        let result = create_profile("my\\profile".to_string(), false, &config);
-        assert!(result.is_err());
-
-        // Name with .. should fail
-        let result = create_profile("../parent".to_string(), false, &config);
-        assert!(result.is_err());
-
-        // Valid name should succeed
-        let result = create_profile("My Test Profile".to_string(), false, &config);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_create_and_load_profiles() {
-        let temp_dir = tempdir().unwrap();
-        let config = create_test_config(temp_dir.path().to_str().unwrap());
-
-        let profile = create_profile("test-profile".to_string(), false, &config).unwrap();
-        assert_eq!(profile.name, "test-profile");
-        assert_eq!(profile.desktop_environment, get_current_desktop_environment());
-
-        let loaded = load_profiles(&config.profiles_dir);
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].name, "test-profile");
     }
 
     #[test]
     fn test_delete_profile() {
-        let temp_dir = tempdir().unwrap();
-        let config = create_test_config(temp_dir.path().to_str().unwrap());
+        let (_tmp, _home) = setup_test_env();
 
-        create_profile("to-delete".to_string(), false, &config).unwrap();
-        let loaded = load_profiles(&config.profiles_dir);
-        assert_eq!(loaded.len(), 1);
+        save_profile("ToDelete", "XFCE", "", "").unwrap();
+        let loaded_before = load_profiles();
+        assert_eq!(loaded_before.len(), 1);
 
-        delete_profile("to-delete", &config).unwrap();
-        let loaded_after = load_profiles(&config.profiles_dir);
+        delete_profile("xfce", "ToDelete").unwrap();
+        let loaded_after = load_profiles();
         assert!(loaded_after.is_empty());
     }
 
     #[test]
-    fn test_export_and_import_profile() {
-        let temp_dir = tempdir().unwrap();
-        let config = create_test_config(temp_dir.path().to_str().unwrap());
-
-        create_profile("export-test".to_string(), false, &config).unwrap();
-        let export_path = export_profile("export-test", &config).unwrap();
-        assert!(export_path.exists());
-
-        // Delete original, then import
-        delete_profile("export-test", &config).unwrap();
-        let import_name = import_profile(export_path.to_str().unwrap(), &config).unwrap();
-        assert_eq!(import_name, "export-test");
-
-        let loaded = load_profiles(&config.profiles_dir);
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].name, "export-test");
+    fn test_load_profiles_empty() {
+        let (_tmp, _home) = setup_test_env();
+        let profiles = load_profiles();
+        assert!(profiles.is_empty());
     }
 
     #[test]
-    fn test_rename_profile() {
-        let temp_dir = tempdir().unwrap();
-        let config = create_test_config(temp_dir.path().to_str().unwrap());
+    fn test_build_de_store_items() {
+        let items = build_de_store_items(&["Plasma".to_string(), "XFCE".to_string()]);
+        assert_eq!(items.len(), 13);
 
-        create_profile("old-name".to_string(), false, &config).unwrap();
-        rename_profile("old-name", "new-name", &config).unwrap();
+        let plasma = items.iter().find(|i| i.name == "Plasma").unwrap();
+        assert!(plasma.is_installed);
 
-        let loaded = load_profiles(&config.profiles_dir);
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].name, "new-name");
+        let gnome = items.iter().find(|i| i.name == "GNOME").unwrap();
+        assert!(!gnome.is_installed);
     }
 
     #[test]
-    fn test_rename_profile_invalid_name() {
-        let temp_dir = tempdir().unwrap();
-        let config = create_test_config(temp_dir.path().to_str().unwrap());
-        create_profile("valid-name".to_string(), false, &config).unwrap();
+    fn test_build_display_items() {
+        let profiles = vec![
+            Profile {
+                name: "Dark Mode".to_string(),
+                de: "Plasma".to_string(),
+                created: "2026-01-01 12:00:00".to_string(),
+                packages: vec![],
+                thumbnail: String::new(),
+                remote_path: String::new(),
+            },
+            Profile {
+                name: "Light Mode".to_string(),
+                de: "Plasma".to_string(),
+                created: "2026-01-02 12:00:00".to_string(),
+                packages: vec![],
+                thumbnail: String::new(),
+                remote_path: String::new(),
+            },
+            Profile {
+                name: "Minimal".to_string(),
+                de: "XFCE".to_string(),
+                created: "2026-01-03 12:00:00".to_string(),
+                packages: vec![],
+                thumbnail: String::new(),
+                remote_path: String::new(),
+            },
+        ];
 
-        // Empty name should fail
-        let result = rename_profile("valid-name", "", &config);
-        assert!(result.is_err());
+        let items = build_display_items(&profiles);
+        // Plasma header + 2 Plasma cards + XFCE header + 1 XFCE card = 5 items
+        assert_eq!(items.len(), 5);
 
-        // Path separator should fail
-        let result = rename_profile("valid-name", "bad/name", &config);
-        assert!(result.is_err());
+        assert_eq!(items[0].item_type, 0); // Header
+        assert_eq!(items[0].header_text, "Plasma");
+        assert_eq!(items[1].item_type, 1); // Profile card
+        assert_eq!(items[1].profile_name, "Dark Mode");
+        assert_eq!(items[2].profile_name, "Light Mode");
+        assert_eq!(items[3].item_type, 0); // Header
+        assert_eq!(items[3].header_text, "XFCE");
     }
 
     #[test]
-    fn test_update_profile_remote_status() {
-        let temp_dir = tempdir().unwrap();
-        let config = create_test_config(temp_dir.path().to_str().unwrap());
-
-        create_profile("remote-test".to_string(), false, &config).unwrap();
-        update_profile_remote_status("remote-test", true, &config).unwrap();
-
-        let loaded = load_profiles(&config.profiles_dir);
-        assert_eq!(loaded.len(), 1);
-        assert!(loaded[0].is_remote);
+    fn test_build_display_items_empty() {
+        let items = build_display_items(&[]);
+        assert!(items.is_empty());
     }
 
     #[test]
-    fn test_get_de_config_conflicts_gnome() {
-        let conflicts = get_de_config_conflicts("GNOME");
-        assert!(conflicts.contains(&"kde".to_string()));
-        assert!(conflicts.contains(&"plasma".to_string()));
-        assert!(conflicts.contains(&"xfce4".to_string()));
+    fn test_normalize_remote_target() {
+        assert!(normalize_remote_target("https://example.com").is_ok());
+        assert!(normalize_remote_target("file:///mnt/backup").is_ok());
+        assert!(normalize_remote_target("/mnt/backup").is_ok());
+        assert!(normalize_remote_target("").is_err());
+        assert!(normalize_remote_target("ftp://bad").is_err());
     }
 
     #[test]
-    fn test_get_de_config_conflicts_kde() {
-        let conflicts = get_de_config_conflicts("KDE Plasma");
-        assert!(conflicts.contains(&"gnome".to_string()));
-        assert!(conflicts.contains(&"xfce4".to_string()));
-    }
-
-    #[test]
-    fn test_get_de_config_conflicts_unknown() {
-        let conflicts = get_de_config_conflicts("UnknownDE");
-        assert!(conflicts.is_empty());
-    }
-
-    #[test]
-    fn test_create_profile_duplicate_fails() {
-        let temp_dir = tempdir().unwrap();
-        let config = create_test_config(temp_dir.path().to_str().unwrap());
-
-        create_profile("dup-test".to_string(), false, &config).unwrap();
-        let result = create_profile("dup-test".to_string(), false, &config);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_default_backup_items_have_categories() {
-        let items = default_backup_items();
-        for item in &items {
-            assert!(!item.category.is_empty(), "Backup item '{}' has empty category", item.name);
-        }
-    }
-
-    #[test]
-    fn test_default_conflict_fixes_have_categories() {
-        let fixes = default_conflict_fixes();
-        for fix in &fixes {
-            assert!(!fix.category.is_empty(), "Conflict fix '{}' has empty category", fix.name);
-            assert!(!fix.apply_fn.is_empty(), "Conflict fix '{}' has no apply function", fix.name);
-        }
-    }
-
-    #[test]
-    fn test_profile_to_ui_conversion() {
-        let profile = Profile {
-            name: "test".to_string(),
-            created: "2024-01-01 00:00:00".to_string(),
-            desktop_environment: "GNOME".to_string(),
-            packages: vec!["pkg1".to_string(), "pkg2".to_string()],
-            is_remote: true,
-            backup_items: vec!["item1".to_string()],
-            config_archive: "configs.tar.gz".to_string(),
-        };
-
-        let ui = profile_to_ui(&profile);
-        assert_eq!(ui.name, "test");
-        assert_eq!(ui.package_count, 2);
-        assert_eq!(ui.config_count, 1);
-        assert!(ui.is_remote);
+    fn test_find_de_definition_index() {
+        assert_eq!(find_de_definition_index("Plasma"), Some(0));
+        assert_eq!(find_de_definition_index("plasma"), Some(0));
+        assert_eq!(find_de_definition_index("GNOME"), Some(9));
+        assert_eq!(find_de_definition_index("Unknown"), None);
     }
 }
