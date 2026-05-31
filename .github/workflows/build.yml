@@ -55,7 +55,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run tests
-        run: cargo test --release
+        run: cargo test --release -- --test-threads=1
 
       - name: Build release binary
         run: cargo build --release
