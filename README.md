@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.jpg" alt="Shapeshifter Logo" width="360" style="border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.7);" />
+  <img src="shapeshifter.png" alt="Shapeshifter" width="340" style="border-radius: 28px; box-shadow: 0 16px 48px rgba(180,20,0,0.6);" />
 </p>
 
 <h1 align="center">SHAPESHIFTER</h1>
@@ -9,9 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/BlancoBAM/Shapeshifter/releases"><img src="https://img.shields.io/github/v/release/BlancoBAM/Shapeshifter?color=f97316&style=for-the-badge" alt="Release" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-f97316?style=for-the-badge" alt="License" /></a>
-  <img src="https://img.shields.io/badge/Lilith%20Linux-Core-red?style=for-the-badge" alt="Lilith Core" />
+  <a href="https://github.com/BlancoBAM/Shapeshifter/releases"><img src="https://img.shields.io/github/v/release/BlancoBAM/Shapeshifter?color=cc2000&style=for-the-badge&logo=linux&logoColor=white" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-cc2000?style=for-the-badge" alt="License" /></a>
+  <img src="https://img.shields.io/badge/Lilith%20Linux-Core-8b0000?style=for-the-badge" alt="Lilith Core" />
+  <img src="https://img.shields.io/badge/built%20with-Rust%20%26%20Slint-e83800?style=for-the-badge" alt="Built with Rust &amp; Slint" />
 </p>
 
 ---

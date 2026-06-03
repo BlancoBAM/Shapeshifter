@@ -1,0 +1,1180 @@
+import { LineEdit, ScrollView } from "std-widgets.slint";
+
+// ─── Data Structures ───────────────────────────────────────────────────────────
+
+export struct DeStoreItem {
+    name: string,
+    meta-package: string,
+    is-installed: bool,
+    is-installing: bool,
+    install-status: string,
+}
+
+export struct ProfileCardData {
+    name: string,
+    de: string,
+    thumbnail-path: string,
+    created: string,
+    remote-path: string,
+}
+
+export struct DisplayItem {
+    item-type: int,
+    header-text: string,
+    grid-row: int,
+    grid-col: int,
+    profile-name: string,
+    profile-de: string,
+    profile-thumbnail: image,
+    has-thumbnail: bool,
+    profile-created: string,
+    profile-index: int,
+}
+
+// ─── Reusable Components ───────────────────────────────────────────────────────
+
+component PrimaryBtn inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled-btn: true;
+    callback clicked;
+
+    height: 36px;
+    background: enabled-btn ? #f97316 : #4a3a28;
+    border-radius: 6px;
+
+    btn-touch := TouchArea {
+        mouse-cursor: enabled-btn ? pointer : default;
+        clicked => {
+            if (root.enabled-btn) {
+                root.clicked();
+            }
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 13px;
+            font-weight: 600;
+            color: #ffffff;
+            vertical-alignment: center;
+        }
+    }
+
+    animate background { duration: 100ms; }
+}
+
+component SecondaryBtn inherits Rectangle {
+    in property <string> label;
+    callback clicked;
+
+    height: 36px;
+    background: btn-touch.has-hover ? #2d333b : #21262d;
+    border-radius: 6px;
+
+    btn-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 13px;
+            font-weight: 600;
+            color: #c9d1d9;
+            vertical-alignment: center;
+        }
+    }
+
+    animate background { duration: 100ms; }
+}
+
+component SmallBtn inherits Rectangle {
+    in property <string> label;
+    in property <bool> is-primary: false;
+    callback clicked;
+
+    height: 32px;
+    background: is-primary
+        ? (btn-touch.has-hover ? #e0650f : #f97316)
+        : (btn-touch.has-hover ? #2d333b : #21262d);
+    border-radius: 6px;
+
+    btn-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 12px;
+            font-weight: 600;
+            color: #ffffff;
+            vertical-alignment: center;
+        }
+    }
+
+    animate background { duration: 100ms; }
+}
+
+component Pill inherits Rectangle {
+    in property <string> label;
+    in property <color> pill-bg: #21262d;
+    in property <color> pill-color: #8b949e;
+
+    height: 22px;
+    background: pill-bg;
+    border-radius: 11px;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 10px;
+            font-weight: 700;
+            color: root.pill-color;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// ─── Main Window ───────────────────────────────────────────────────────────────
+
+export component AppWindow inherits Window {
+    title: "Shapeshifter — Desktop Environment Store & Profile Manager";
+    background: #0d1117;
+    preferred-width: 1120px;
+    preferred-height: 760px;
+    min-width: 900px;
+    min-height: 600px;
+
+    // ── Bound properties ────────────────────────────────────────────────────
+    in-out property <[DeStoreItem]> de-store-items;
+    in-out property <[DisplayItem]> display-items;
+    in-out property <string>  status-message: "";
+    in-out property <string>  status-type: "info";
+    in-out property <string>  current-de;
+    in-out property <string>  current-user;
+    in-out property <string>  application-version;
+    in-out property <string>  last-remote-path;
+
+    // ── Dialog state ─────────────────────────────────────────────────────────
+    in-out property <bool>   show-save-dialog: false;
+    in-out property <bool>   show-install-confirm: false;
+    in-out property <bool>   show-remove-confirm: false;
+    in-out property <bool>   show-restore-confirm: false;
+    in-out property <bool>   show-delete-confirm: false;
+    in-out property <string> confirm-title: "";
+    in-out property <string> confirm-message: "";
+    in-out property <int>    confirm-index: -1;
+    in-out property <string> save-de-name: "";
+    in-out property <string> pending-thumbnail-path: "";
+
+    // ── Callbacks ────────────────────────────────────────────────────────────
+    callback install-de(int);
+    callback remove-de(int);
+    callback save-profile(string, string, string);
+    callback restore-profile(int);
+    callback delete-profile(int);
+    callback browse-thumbnail();
+    callback refresh-all();
+    callback confirm-install-de();
+    callback confirm-remove-de();
+    callback confirm-restore-profile();
+    callback confirm-delete-profile();
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Main Layout: Sidebar | Content
+    // ════════════════════════════════════════════════════════════════════════
+    HorizontalLayout {
+        spacing: 0;
+
+        // ── Sidebar ────────────────────────────────────────────────────────
+        sidebar := Rectangle {
+            width: 240px;
+            background: #161b22;
+
+            VerticalLayout {
+                padding-top: 28px;
+                padding-bottom: 20px;
+                padding-left: 0px;
+                padding-right: 0px;
+                spacing: 2px;
+
+                // Brand
+                VerticalLayout {
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    padding-bottom: 8px;
+                    spacing: 3px;
+                    Text {
+                        text: "SHAPESHIFTER";
+                        font-size: 18px;
+                        font-weight: 800;
+                        color: #f97316;
+                        letter-spacing: 1.5px;
+                    }
+                    Text {
+                        text: "DE Store & Profile Manager";
+                        font-size: 11px;
+                        color: #8b949e;
+                        wrap: no-wrap;
+                    }
+                }
+
+                // Divider
+                Rectangle {
+                    height: 1px;
+                    background: #30363d;
+                    horizontal-stretch: 1;
+                }
+
+                Rectangle { height: 8px; }
+
+                // ── Nav Items ───────────────────────────────────────────────
+                // 0 · DE Store
+                nav-item-0 := Rectangle {
+                    height: 42px;
+                    horizontal-stretch: 1;
+                    background: root.nav-tab == 0
+                        ? #f9731614
+                        : (nav-touch-0.has-hover ? #ffffff0a : transparent);
+
+                    if root.nav-tab == 0: Rectangle {
+                        width: 3px;
+                        height: 28px;
+                        background: #f97316;
+                        border-radius: 2px;
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    nav-touch-0 := TouchArea {
+                        clicked => { root.nav-tab = 0; }
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            spacing: 10px;
+                            alignment: start;
+                            Text {
+                                text: "DE Store";
+                                font-size: 14px;
+                                font-weight: root.nav-tab == 0 ? 700 : 500;
+                                color: root.nav-tab == 0 ? #f97316 : #8b949e;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                    animate background { duration: 120ms; }
+                }
+
+                // 1 · Profiles
+                nav-item-1 := Rectangle {
+                    height: 42px;
+                    horizontal-stretch: 1;
+                    background: root.nav-tab == 1
+                        ? #f9731614
+                        : (nav-touch-1.has-hover ? #ffffff0a : transparent);
+
+                    if root.nav-tab == 1: Rectangle {
+                        width: 3px;
+                        height: 28px;
+                        background: #f97316;
+                        border-radius: 2px;
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    nav-touch-1 := TouchArea {
+                        clicked => { root.nav-tab = 1; }
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 16px;
+                            alignment: start;
+                            Text {
+                                text: "Profiles";
+                                font-size: 14px;
+                                font-weight: root.nav-tab == 1 ? 700 : 500;
+                                color: root.nav-tab == 1 ? #f97316 : #8b949e;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                    animate background { duration: 120ms; }
+                }
+
+                // Spacer
+                Rectangle { vertical-stretch: 1; }
+
+                // Divider
+                Rectangle {
+                    height: 1px;
+                    background: #30363d;
+                    horizontal-stretch: 1;
+                }
+
+                // Status footer
+                VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 16px;
+                    padding-top: 10px;
+                    spacing: 4px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: #3fb950;
+                            y: 3px;
+                        }
+                        Text {
+                            text: root.current-de != "" ? root.current-de : "Unknown DE";
+                            font-size: 11px;
+                            color: #8b949e;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+
+                    Text {
+                        text: "v" + root.application-version;
+                        font-size: 10px;
+                        color: #484f58;
+                    }
+                }
+            }
+        }
+
+        // Thin vertical separator
+        Rectangle {
+            width: 1px;
+            background: #21262d;
+        }
+
+        // ── Main content area ──────────────────────────────────────────────
+        VerticalLayout {
+            vertical-stretch: 1;
+            spacing: 0;
+
+            // Header bar
+            header := Rectangle {
+                height: 62px;
+                background: #161b22;
+
+                HorizontalLayout {
+                    padding-left: 28px;
+                    padding-right: 20px;
+                    spacing: 12px;
+                    alignment: center;
+
+                    Text {
+                        text: root.nav-tab == 0 ? "DE Store" :
+                              root.nav-tab == 1 ? "Profiles" : "";
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    // Profiles header buttons
+                    if root.nav-tab == 1: HorizontalLayout {
+                        spacing: 8px;
+                        PrimaryBtn {
+                            label: "+ Save Current";
+                            height: 36px;
+                            clicked => {
+                                root.save-de-name = root.current-de;
+                                root.show-save-dialog = true;
+                            }
+                        }
+                    }
+
+                    // DE Store refresh button
+                    if root.nav-tab == 0: SecondaryBtn {
+                        label: "⟳  Refresh";
+                        height: 36px;
+                        clicked => { root.refresh-all(); }
+                    }
+                }
+            }
+
+            // Thin underline separator
+            Rectangle {
+                height: 1px;
+                background: #21262d;
+            }
+
+            // ── Scrollable content ─────────────────────────────────────────
+            content-scroll := Rectangle {
+                vertical-stretch: 1;
+                background: #0d1117;
+                clip: true;
+
+                ScrollView {
+                    width: 100%;
+                    height: 100%;
+
+                    VerticalLayout {
+                    padding: 24px;
+                    spacing: 16px;
+
+                    // ════════════════════════════════════════════
+                    // TAB 0: DE Store
+                    // ════════════════════════════════════════════
+                    if root.nav-tab == 0: VerticalLayout {
+                        spacing: 10px;
+
+                        // Info card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            height: 64px;
+                            VerticalLayout {
+                                padding-top: 14px;
+                                padding-bottom: 14px;
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                spacing: 4px;
+                                Text {
+                                    text: "Desktop Environment Store";
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    color: #c9d1d9;
+                                }
+                                Text {
+                                    text: "Browse and install Lilith Linux desktop environments. Click Install to add a new DE.";
+                                    font-size: 12px;
+                                    color: #8b949e;
+                                }
+                            }
+                        }
+
+                        // DE list
+                        for de[index] in de-store-items: Rectangle {
+                            height: 58px;
+                            background: de-hover.has-hover ? #1c2128 : #161b22;
+                            border-radius: 10px;
+
+                            de-hover := TouchArea {}
+
+                            HorizontalLayout {
+                                padding-top: 14px;
+                                padding-bottom: 14px;
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                spacing: 12px;
+                                alignment: center;
+
+                                // Install spinner
+                                if de.is-installing: Rectangle {
+                                    width: 20px;
+                                    height: 20px;
+                                    border-radius: 10px;
+                                    background: #f97316;
+                                }
+
+                                VerticalLayout {
+                                    vertical-stretch: 1;
+                                    spacing: 2px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: de.name;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        color: #f0f6fc;
+                                        vertical-alignment: center;
+                                    }
+
+                                    if de.is-installing: Text {
+                                        text: de.install-status;
+                                        font-size: 11px;
+                                        color: #f97316;
+                                    }
+                                }
+
+                                Rectangle { horizontal-stretch: 1; }
+
+                                if de.is-installing: Pill {
+                                    label: "Installing...";
+                                    pill-bg: #f9731622;
+                                    pill-color: #f97316;
+                                }
+
+                                if !de.is-installing && de.is-installed: Pill {
+                                    label: "Installed";
+                                    pill-bg: #23863633;
+                                    pill-color: #3fb950;
+                                }
+
+                                if !de.is-installing && de.is-installed: SmallBtn {
+                                    label: "Remove";
+                                    clicked => {
+                                        root.confirm-index = index;
+                                        root.confirm-title = "Remove " + de.name + "?";
+                                        root.confirm-message = "This will remove " + de.name + ". Saved profiles will be preserved on disk.";
+                                        root.show-remove-confirm = true;
+                                    }
+                                }
+
+                                if !de.is-installing && !de.is-installed: SmallBtn {
+                                    label: "Install";
+                                    is-primary: true;
+                                    clicked => {
+                                        root.confirm-index = index;
+                                        root.confirm-title = "Install " + de.name + "?";
+                                        root.confirm-message = "Install " + de.name + " desktop environment via pkexec apt.";
+                                        root.show-install-confirm = true;
+                                    }
+                                }
+                            }
+                            animate background { duration: 120ms; }
+                        }
+                    }
+
+                    // ════════════════════════════════════════════
+                    // TAB 1: Profiles
+                    // ════════════════════════════════════════════
+                    if root.nav-tab == 1: VerticalLayout {
+                        spacing: 10px;
+
+                        // Info card
+                        Rectangle {
+                            background: #161b22;
+                            border-radius: 10px;
+                            height: 56px;
+                            VerticalLayout {
+                                padding-top: 12px;
+                                padding-bottom: 12px;
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                spacing: 4px;
+                                Text {
+                                    text: "Saved Desktop Profiles";
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    color: #c9d1d9;
+                                }
+                                Text {
+                                    text: "Save and restore complete desktop configurations. Profiles are grouped by desktop environment.";
+                                    font-size: 12px;
+                                    color: #8b949e;
+                                }
+                            }
+                        }
+
+                        // Empty state
+                        if display-items.length == 0: Rectangle {
+                            height: 160px;
+                            background: #161b22;
+                            border-radius: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                padding: 24px;
+                                spacing: 10px;
+                                Text {
+                                    text: "No profiles saved yet";
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                    color: #8b949e;
+                                    horizontal-alignment: center;
+                                }
+                                Text {
+                                    text: "Install a desktop environment from the DE Store, then save your first profile.";
+                                    font-size: 13px;
+                                    color: #484f58;
+                                    horizontal-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+
+                        // Profile grid (flat list with section headers + cards)
+                        for item[index] in display-items: Rectangle {
+                            height: item.item-type == 0 ? 42px : 100px;
+                            background: item.item-type == 0 ? transparent : (card-hover.has-hover ? #1c2128 : #161b22);
+                            border-radius: item.item-type == 0 ? 0px : 10px;
+
+                            card-hover := TouchArea {}
+                                HorizontalLayout {
+                                    padding: item.item-type == 0 ? 0px : 14px;
+                                    spacing: 12px;
+                                    alignment: center;
+
+                                    if item.item-type == 0: // Section header
+                                        HorizontalLayout {
+                                            spacing: 10px;
+                                            alignment: start;
+                                            Text {
+                                                text: item.header-text;
+                                                font-size: 16px;
+                                                font-weight: 700;
+                                                color: #f97316;
+                                                vertical-alignment: center;
+                                            }
+                                            Rectangle {
+                                                height: 2px;
+                                                background: #f9731633;
+                                                vertical-stretch: 0;
+                                                y: (parent.height - self.height) / 2;
+                                                horizontal-stretch: 1;
+                                            }
+                                            PrimaryBtn {
+                                                label: "Save Profile";
+                                                height: 32px;
+                                                clicked => {
+                                                    root.save-de-name = item.header-text;
+                                                    root.show-save-dialog = true;
+                                                }
+                                            }
+                                        }
+
+                                    if item.item-type == 1: // Profile card
+                                        HorizontalLayout {
+                                            spacing: 14px;
+                                            alignment: center;
+                                            vertical-stretch: 1;
+
+                                            // Thumbnail image container
+                                            Rectangle {
+                                                width: 120px;
+                                                height: 72px;
+                                                background: #21262d;
+                                                border-radius: 6px;
+                                                border-width: 1px;
+                                                border-color: #30363d;
+                                                clip: true;
+
+                                                if !item.has-thumbnail: VerticalLayout {
+                                                    alignment: center;
+                                                    Text {
+                                                        text: "📷";
+                                                        font-size: 24px;
+                                                        horizontal-alignment: center;
+                                                    }
+                                                }
+
+                                                if item.has-thumbnail: Image {
+                                                    source: item.profile-thumbnail;
+                                                    width: 100%;
+                                                    height: 100%;
+                                                    image-fit: cover;
+                                                }
+                                            }
+
+                                            VerticalLayout {
+                                                spacing: 4px;
+                                                Text {
+                                                    text: item.profile-name;
+                                                    font-size: 14px;
+                                                    font-weight: 600;
+                                                    color: #f0f6fc;
+                                                }
+                                                Text {
+                                                    text: item.profile-de;
+                                                    font-size: 11px;
+                                                    color: #8b949e;
+                                                }
+                                                Text {
+                                                    text: item.profile-created;
+                                                    font-size: 11px;
+                                                    color: #484f58;
+                                                }
+                                            }
+
+                                            Rectangle { horizontal-stretch: 1; }
+
+                                            HorizontalLayout {
+                                                spacing: 6px;
+                                                alignment: end;
+                                                SmallBtn {
+                                                    label: "Restore";
+                                                    is-primary: true;
+                                                    clicked => {
+                                                        root.confirm-index = item.profile-index;
+                                                        root.confirm-title = "Restore Profile?";
+                                                        root.confirm-message = "Restore profile '" + item.profile-name + "' for " + item.profile-de + "?";
+                                                        root.show-restore-confirm = true;
+                                                    }
+                                                }
+                                                SmallBtn {
+                                                    label: "Delete";
+                                                    clicked => {
+                                                        root.confirm-index = item.profile-index;
+                                                        root.confirm-title = "Delete Profile?";
+                                                        root.confirm-message = "Delete profile '" + item.profile-name + "'? This cannot be undone.";
+                                                        root.show-delete-confirm = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                }
+                            animate background { duration: 120ms; }
+                        }
+                    }
+
+                    // ── Status Banner ──────────────────────────────────────
+                    if root.status-message != "": Rectangle {
+                        min-height: 44px;
+                        background: root.status-type == "error"   ? #f8514918 :
+                                    root.status-type == "success" ? #23863618 : #f9731618;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: root.status-type == "error"   ? #f8514944 :
+                                      root.status-type == "success" ? #23863644 : #f9731644;
+
+                        HorizontalLayout {
+                            padding: 12px;
+                            spacing: 10px;
+                            alignment: center;
+                            Text {
+                                text: root.status-message;
+                                color: root.status-type == "error"   ? #f85149 :
+                                       root.status-type == "success" ? #3fb950 : #f97316;
+                                font-size: 13px;
+                                wrap: word-wrap;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Install Confirm
+    // ════════════════════════════════════════════════════════════════════════
+    if root.show-install-confirm: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000099;
+
+        Rectangle {
+            width: 440px;
+            background: #161b22;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 28px;
+                spacing: 20px;
+
+                HorizontalLayout {
+                    Text {
+                        text: root.confirm-title;
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => { root.show-install-confirm = false; }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #30363d; }
+
+                Text {
+                    text: root.confirm-message;
+                    font-size: 13px;
+                    color: #c9d1d9;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => { root.show-install-confirm = false; }
+                    }
+                    PrimaryBtn {
+                        label: "Install";
+                        height: 36px;
+                        clicked => {
+                            root.confirm-install-de();
+                            root.show-install-confirm = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Remove Confirm
+    // ════════════════════════════════════════════════════════════════════════
+    if root.show-remove-confirm: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000099;
+
+        Rectangle {
+            width: 440px;
+            background: #161b22;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 28px;
+                spacing: 20px;
+
+                HorizontalLayout {
+                    Text {
+                        text: root.confirm-title;
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => { root.show-remove-confirm = false; }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #30363d; }
+
+                Text {
+                    text: root.confirm-message;
+                    font-size: 13px;
+                    color: #c9d1d9;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => { root.show-remove-confirm = false; }
+                    }
+                    PrimaryBtn {
+                        label: "Remove";
+                        height: 36px;
+                        clicked => {
+                            root.confirm-remove-de();
+                            root.show-remove-confirm = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Restore Confirm
+    // ════════════════════════════════════════════════════════════════════════
+    if root.show-restore-confirm: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000099;
+
+        Rectangle {
+            width: 440px;
+            background: #161b22;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 28px;
+                spacing: 20px;
+
+                HorizontalLayout {
+                    Text {
+                        text: root.confirm-title;
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => { root.show-restore-confirm = false; }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #30363d; }
+
+                Text {
+                    text: root.confirm-message;
+                    font-size: 13px;
+                    color: #c9d1d9;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => { root.show-restore-confirm = false; }
+                    }
+                    PrimaryBtn {
+                        label: "Restore";
+                        height: 36px;
+                        clicked => {
+                            root.confirm-restore-profile();
+                            root.show-restore-confirm = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Delete Confirm
+    // ════════════════════════════════════════════════════════════════════════
+    if root.show-delete-confirm: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000099;
+
+        Rectangle {
+            width: 440px;
+            background: #161b22;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 28px;
+                spacing: 20px;
+
+                HorizontalLayout {
+                    Text {
+                        text: root.confirm-title;
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => { root.show-delete-confirm = false; }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #30363d; }
+
+                Text {
+                    text: root.confirm-message;
+                    font-size: 13px;
+                    color: #c9d1d9;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => { root.show-delete-confirm = false; }
+                    }
+                    PrimaryBtn {
+                        label: "Delete";
+                        height: 36px;
+                        clicked => {
+                            root.confirm-delete-profile();
+                            root.show-delete-confirm = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Modal: Save Profile
+    // ════════════════════════════════════════════════════════════════════════
+    if root.show-save-dialog: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000099;
+
+        Rectangle {
+            width: 500px;
+            background: #161b22;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #30363d;
+            x: (parent.width  - self.width)  / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                padding: 28px;
+                spacing: 20px;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Save Profile";
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallBtn {
+                        label: "✕";
+                        clicked => {
+                            root.show-save-dialog = false;
+                            save-profile-name.text = "";
+                            save-thumbnail-path.text = "";
+                            save-remote-path.text = "";
+                        }
+                    }
+                }
+
+                Rectangle { height: 1px; background: #30363d; }
+
+                // Profile name
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Profile Name";
+                        font-size: 12px;
+                        color: #8b949e;
+                    }
+                    save-profile-name := LineEdit {
+                        placeholder-text: "e.g., Dark Plasma Setup";
+                        height: 36px;
+                    }
+                }
+
+                // DE (read-only)
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Desktop Environment";
+                        font-size: 12px;
+                        color: #8b949e;
+                    }
+                    Text {
+                        text: root.save-de-name;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: #f0f6fc;
+                    }
+                }
+
+                // Thumbnail
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Thumbnail Image";
+                        font-size: 12px;
+                        color: #8b949e;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        save-thumbnail-path := LineEdit {
+                            placeholder-text: "Path to image or leave empty for default";
+                            vertical-stretch: 1;
+                            height: 36px;
+                            text: root.pending-thumbnail-path;
+                        }
+                        SecondaryBtn {
+                            label: "Browse";
+                            height: 36px;
+                            clicked => {
+                                root.browse-thumbnail();
+                                save-thumbnail-path.text = root.pending-thumbnail-path;
+                            }
+                        }
+                    }
+                }
+
+                // Remote path (optional)
+                VerticalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Remote Path (optional)";
+                        font-size: 12px;
+                        color: #8b949e;
+                    }
+                    save-remote-path := LineEdit {
+                        placeholder-text: root.last-remote-path != "" ? root.last-remote-path : "/mnt/backup/profiles/";
+                        height: 36px;
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    SecondaryBtn {
+                        label: "Cancel";
+                        height: 36px;
+                        clicked => {
+                            root.show-save-dialog = false;
+                            save-profile-name.text = "";
+                            save-thumbnail-path.text = "";
+                            save-remote-path.text = "";
+                            root.pending-thumbnail-path = "";
+                        }
+                    }
+                    PrimaryBtn {
+                        label: "Save Profile";
+                        height: 36px;
+                        enabled-btn: save-profile-name.text != "";
+                        clicked => {
+                            root.save-profile(
+                                save-profile-name.text,
+                                save-thumbnail-path.text,
+                                save-remote-path.text
+                            );
+                            root.show-save-dialog = false;
+                            save-profile-name.text = "";
+                            save-thumbnail-path.text = "";
+                            save-remote-path.text = "";
+                            root.pending-thumbnail-path = "";
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Navigation state ─────────────────────────────────────────────────────
+    in-out property <int> nav-tab: 0;
+}

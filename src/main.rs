@@ -470,7 +470,8 @@ fn build_display_items(profiles: &[Profile]) -> Vec<DisplayItem> {
             grid_col: 0,
             profile_name: SharedString::default(),
             profile_de: SharedString::default(),
-            profile_thumbnail: SharedString::default(),
+            profile_thumbnail: slint::Image::default(),
+            has_thumbnail: false,
             profile_created: SharedString::default(),
             profile_index: -1,
         });
@@ -478,6 +479,18 @@ fn build_display_items(profiles: &[Profile]) -> Vec<DisplayItem> {
 
         // Profile cards in this section
         for (i, p) in group.iter().enumerate() {
+            let has_thumbnail = !p.thumbnail.is_empty();
+            let profile_thumbnail = if has_thumbnail {
+                let path = get_profile_dir(&p.de, &p.name).join(&p.thumbnail);
+                if path.exists() {
+                    slint::Image::load_from_path(&path).unwrap_or_else(|_| slint::Image::default())
+                } else {
+                    slint::Image::default()
+                }
+            } else {
+                slint::Image::default()
+            };
+
             items.push(DisplayItem {
                 item_type: 1,
                 header_text: SharedString::default(),
@@ -485,7 +498,8 @@ fn build_display_items(profiles: &[Profile]) -> Vec<DisplayItem> {
                 grid_col: (i % cols) as i32,
                 profile_name: p.name.clone().into(),
                 profile_de: p.de.clone().into(),
-                profile_thumbnail: p.thumbnail.clone().into(),
+                profile_thumbnail,
+                has_thumbnail,
                 profile_created: p.created.clone().into(),
                 profile_index: find_profile_index(profiles, p) as i32,
             });
@@ -1049,22 +1063,20 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui_weak = ui.as_weak();
     ui.on_restore_profile(move |index| {
         let profiles = load_profiles();
-        // Find profile by index in display items
-        let display_items = build_display_items(&profiles);
-        if let Some(item) = display_items.get(index as usize) {
-            if item.item_type == 1 {
-                match restore_profile(&item.profile_de, &item.profile_name) {
-                    Ok(msg) => {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            ui.set_status_message(msg.into());
-                            ui.set_status_type("success".into());
-                        }
+        if let Some(profile) = profiles.get(index as usize) {
+            let de = profile.de.clone();
+            let name = profile.name.clone();
+            match restore_profile(&de, &name) {
+                Ok(msg) => {
+                    if let Some(ui) = ui_weak.upgrade() {
+                        ui.set_status_message(msg.into());
+                        ui.set_status_type("success".into());
                     }
-                    Err(e) => {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            ui.set_status_message(format!("Error restoring profile: {}", e).into());
-                            ui.set_status_type("error".into());
-                        }
+                }
+                Err(e) => {
+                    if let Some(ui) = ui_weak.upgrade() {
+                        ui.set_status_message(format!("Error restoring profile: {}", e).into());
+                        ui.set_status_type("error".into());
                     }
                 }
             }
@@ -1077,18 +1089,17 @@ fn main() -> Result<(), slint::PlatformError> {
             let index = ui.get_confirm_index();
             if index >= 0 {
                 let profiles = load_profiles();
-                let display_items = build_display_items(&profiles);
-                if let Some(item) = display_items.get(index as usize) {
-                    if item.item_type == 1 {
-                        match restore_profile(&item.profile_de, &item.profile_name) {
-                            Ok(msg) => {
-                                ui.set_status_message(msg.into());
-                                ui.set_status_type("success".into());
-                            }
-                            Err(e) => {
-                                ui.set_status_message(format!("Error restoring profile: {}", e).into());
-                                ui.set_status_type("error".into());
-                            }
+                if let Some(profile) = profiles.get(index as usize) {
+                    let de = profile.de.clone();
+                    let name = profile.name.clone();
+                    match restore_profile(&de, &name) {
+                        Ok(msg) => {
+                            ui.set_status_message(msg.into());
+                            ui.set_status_type("success".into());
+                        }
+                        Err(e) => {
+                            ui.set_status_message(format!("Error restoring profile: {}", e).into());
+                            ui.set_status_type("error".into());
                         }
                     }
                 }
@@ -1103,20 +1114,19 @@ fn main() -> Result<(), slint::PlatformError> {
             let index = ui.get_confirm_index();
             if index >= 0 {
                 let profiles = load_profiles();
-                let display_items = build_display_items(&profiles);
-                if let Some(item) = display_items.get(index as usize) {
-                    if item.item_type == 1 {
-                        match delete_profile(&item.profile_de, &item.profile_name) {
-                            Ok(()) => {
-                                ui.set_status_message(format!("Profile '{}' deleted", item.profile_name).into());
-                                ui.set_status_type("success".into());
-                                let profiles = load_profiles();
-                                ui.set_display_items(ModelRc::new(VecModel::from(build_display_items(&profiles))));
-                            }
-                            Err(e) => {
-                                ui.set_status_message(format!("Error deleting profile: {}", e).into());
-                                ui.set_status_type("error".into());
-                            }
+                if let Some(profile) = profiles.get(index as usize) {
+                    let de = profile.de.clone();
+                    let name = profile.name.clone();
+                    match delete_profile(&de, &name) {
+                        Ok(()) => {
+                            ui.set_status_message(format!("Profile '{}' deleted", name).into());
+                            ui.set_status_type("success".into());
+                            let refreshed = load_profiles();
+                            ui.set_display_items(ModelRc::new(VecModel::from(build_display_items(&refreshed))));
+                        }
+                        Err(e) => {
+                            ui.set_status_message(format!("Error deleting profile: {}", e).into());
+                            ui.set_status_type("error".into());
                         }
                     }
                 }
@@ -1130,10 +1140,10 @@ fn main() -> Result<(), slint::PlatformError> {
         let path = browse_file();
         if let Some(ui) = ui_weak.upgrade() {
             if !path.is_empty() {
-                // Set thumbnail path is handled via the LineEdit text set by zenity
-                // Since we can't set the LineEdit text directly from Rust (no binding),
-                // we'll notify via status message
-                ui.set_status_message(format!("Selected: {}", path).into());
+                // Write the selected path back into the pending-thumbnail-path property
+                // which the Save dialog's LineEdit reads from
+                ui.set_pending_thumbnail_path(path.clone().into());
+                ui.set_status_message(format!("Thumbnail selected: {}", path).into());
                 ui.set_status_type("info".into());
             }
         }
@@ -1168,12 +1178,15 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn setup_test_env() -> (tempfile::TempDir, PathBuf) {
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn setup_test_env() -> (tempfile::TempDir, PathBuf, std::sync::MutexGuard<'static, ()>) {
+        let guard = TEST_LOCK.lock().unwrap();
         let tmp = tempdir().unwrap();
         let home = tmp.path().to_path_buf();
         std::env::set_var("HOME", home.to_str().unwrap());
         std::env::set_var("XDG_CURRENT_DESKTOP", "TestDE");
-        (tmp, home)
+        (tmp, home, guard)
     }
 
     #[test]
@@ -1214,7 +1227,7 @@ mod tests {
 
     #[test]
     fn test_save_and_load_profile() {
-        let (_tmp, _home) = setup_test_env();
+        let (_tmp, _home, _guard) = setup_test_env();
 
         let profile = save_profile("Test Profile", "Plasma", "", "").unwrap();
         assert_eq!(profile.name, "Test Profile");
@@ -1228,7 +1241,7 @@ mod tests {
 
     #[test]
     fn test_save_profile_duplicate_fails() {
-        let (_tmp, _home) = setup_test_env();
+        let (_tmp, _home, _guard) = setup_test_env();
 
         save_profile("Dup", "Plasma", "", "").unwrap();
         let result = save_profile("Dup", "Plasma", "", "");
@@ -1237,7 +1250,7 @@ mod tests {
 
     #[test]
     fn test_save_profile_invalid_name() {
-        let (_tmp, _home) = setup_test_env();
+        let (_tmp, _home, _guard) = setup_test_env();
 
         let result = save_profile("", "Plasma", "", "");
         assert!(result.is_err());
@@ -1248,7 +1261,7 @@ mod tests {
 
     #[test]
     fn test_delete_profile() {
-        let (_tmp, _home) = setup_test_env();
+        let (_tmp, _home, _guard) = setup_test_env();
 
         save_profile("ToDelete", "XFCE", "", "").unwrap();
         let loaded_before = load_profiles();
@@ -1261,7 +1274,7 @@ mod tests {
 
     #[test]
     fn test_load_profiles_empty() {
-        let (_tmp, _home) = setup_test_env();
+        let (_tmp, _home, _guard) = setup_test_env();
         let profiles = load_profiles();
         assert!(profiles.is_empty());
     }

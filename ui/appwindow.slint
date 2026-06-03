@@ -25,7 +25,8 @@ export struct DisplayItem {
     grid-col: int,
     profile-name: string,
     profile-de: string,
-    profile-thumbnail: string,
+    profile-thumbnail: image,
+    has-thumbnail: bool,
     profile-created: string,
     profile-index: int,
 }
@@ -71,7 +72,7 @@ component SecondaryBtn inherits Rectangle {
     callback clicked;
 
     height: 36px;
-    background: btn-touch.has-hover ? #2d333b : #21262d;
+    background: btn-touch.has-hover ? #2a1520 : #1e0f14;
     border-radius: 6px;
 
     btn-touch := TouchArea {
@@ -87,7 +88,7 @@ component SecondaryBtn inherits Rectangle {
             text: root.label;
             font-size: 13px;
             font-weight: 600;
-            color: #c9d1d9;
+            color: #c9a8a0;
             vertical-alignment: center;
         }
     }
@@ -103,7 +104,7 @@ component SmallBtn inherits Rectangle {
     height: 32px;
     background: is-primary
         ? (btn-touch.has-hover ? #e0650f : #f97316)
-        : (btn-touch.has-hover ? #2d333b : #21262d);
+        : (btn-touch.has-hover ? #2a1520 : #1e0f14);
     border-radius: 6px;
 
     btn-touch := TouchArea {
@@ -129,8 +130,8 @@ component SmallBtn inherits Rectangle {
 
 component Pill inherits Rectangle {
     in property <string> label;
-    in property <color> pill-bg: #21262d;
-    in property <color> pill-color: #8b949e;
+    in property <color> pill-bg: #1e0f14;
+    in property <color> pill-color: #9e7070;
 
     height: 22px;
     background: pill-bg;
@@ -154,7 +155,7 @@ component Pill inherits Rectangle {
 
 export component AppWindow inherits Window {
     title: "Shapeshifter — Desktop Environment Store & Profile Manager";
-    background: #0d1117;
+    background: #080406;
     preferred-width: 1120px;
     preferred-height: 760px;
     min-width: 900px;
@@ -180,6 +181,7 @@ export component AppWindow inherits Window {
     in-out property <string> confirm-message: "";
     in-out property <int>    confirm-index: -1;
     in-out property <string> save-de-name: "";
+    in-out property <string> pending-thumbnail-path: "";
 
     // ── Callbacks ────────────────────────────────────────────────────────────
     callback install-de(int);
@@ -203,7 +205,7 @@ export component AppWindow inherits Window {
         // ── Sidebar ────────────────────────────────────────────────────────
         sidebar := Rectangle {
             width: 240px;
-            background: #161b22;
+            background: #130b10;
 
             VerticalLayout {
                 padding-top: 28px;
@@ -228,7 +230,7 @@ export component AppWindow inherits Window {
                     Text {
                         text: "DE Store & Profile Manager";
                         font-size: 11px;
-                        color: #8b949e;
+                        color: #9e7070;
                         wrap: no-wrap;
                     }
                 }
@@ -236,7 +238,7 @@ export component AppWindow inherits Window {
                 // Divider
                 Rectangle {
                     height: 1px;
-                    background: #30363d;
+                    background: #3d1520;
                     horizontal-stretch: 1;
                 }
 
@@ -271,7 +273,7 @@ export component AppWindow inherits Window {
                                 text: "DE Store";
                                 font-size: 14px;
                                 font-weight: root.nav-tab == 0 ? 700 : 500;
-                                color: root.nav-tab == 0 ? #f97316 : #8b949e;
+                                color: root.nav-tab == 0 ? #f97316 : #9e7070;
                                 vertical-alignment: center;
                             }
                         }
@@ -306,7 +308,7 @@ export component AppWindow inherits Window {
                                 text: "Profiles";
                                 font-size: 14px;
                                 font-weight: root.nav-tab == 1 ? 700 : 500;
-                                color: root.nav-tab == 1 ? #f97316 : #8b949e;
+                                color: root.nav-tab == 1 ? #f97316 : #9e7070;
                                 vertical-alignment: center;
                             }
                         }
@@ -320,40 +322,61 @@ export component AppWindow inherits Window {
                 // Divider
                 Rectangle {
                     height: 1px;
-                    background: #30363d;
+                    background: #3d1520;
                     horizontal-stretch: 1;
                 }
 
-                // Status footer
+                // Branded footer — Shapeshifter wordmark + active DE chip + version
                 VerticalLayout {
-                    padding-left: 20px;
+                    padding-left: 18px;
                     padding-right: 16px;
-                    padding-top: 10px;
-                    spacing: 4px;
+                    padding-top: 14px;
+                    padding-bottom: 16px;
+                    spacing: 6px;
 
+                    // Wordmark
+                    Text {
+                        text: "Shapeshifter";
+                        font-size: 15px;
+                        font-weight: 800;
+                        color: #f97316;
+                        letter-spacing: 0.5px;
+                    }
+
+                    // Thin flame rule
+                    Rectangle {
+                        height: 1px;
+                        horizontal-stretch: 1;
+                        background: @linear-gradient(90deg, #cc2000 0%, #f97316 60%, transparent 100%);
+                    }
+
+                    // Active DE chip
                     HorizontalLayout {
-                        spacing: 8px;
+                        spacing: 6px;
                         alignment: start;
                         Rectangle {
-                            width: 8px;
-                            height: 8px;
-                            border-radius: 4px;
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 3px;
                             background: #3fb950;
-                            y: 3px;
+                            y: (parent.height - self.height) / 2;
                         }
                         Text {
-                            text: root.current-de != "" ? root.current-de : "Unknown DE";
+                            text: root.current-de != "" ? root.current-de : "No DE";
                             font-size: 11px;
-                            color: #8b949e;
+                            font-weight: 500;
+                            color: #9e7070;
                             vertical-alignment: center;
                             overflow: elide;
                         }
                     }
 
+                    // Version
                     Text {
                         text: "v" + root.application-version;
                         font-size: 10px;
-                        color: #484f58;
+                        color: #6b4040;
+                        letter-spacing: 0.3px;
                     }
                 }
             }
@@ -362,7 +385,7 @@ export component AppWindow inherits Window {
         // Thin vertical separator
         Rectangle {
             width: 1px;
-            background: #21262d;
+            background: #1e0f14;
         }
 
         // ── Main content area ──────────────────────────────────────────────
@@ -373,7 +396,7 @@ export component AppWindow inherits Window {
             // Header bar
             header := Rectangle {
                 height: 62px;
-                background: #161b22;
+                background: #130b10;
 
                 HorizontalLayout {
                     padding-left: 28px;
@@ -386,7 +409,7 @@ export component AppWindow inherits Window {
                               root.nav-tab == 1 ? "Profiles" : "";
                         font-size: 20px;
                         font-weight: 700;
-                        color: #f0f6fc;
+                        color: #f5e6e0;
                         vertical-alignment: center;
                     }
 
@@ -417,13 +440,13 @@ export component AppWindow inherits Window {
             // Thin underline separator
             Rectangle {
                 height: 1px;
-                background: #21262d;
+                background: #1e0f14;
             }
 
             // ── Scrollable content ─────────────────────────────────────────
             content-scroll := Rectangle {
                 vertical-stretch: 1;
-                background: #0d1117;
+                background: #080406;
                 clip: true;
 
                 ScrollView {
@@ -442,7 +465,7 @@ export component AppWindow inherits Window {
 
                         // Info card
                         Rectangle {
-                            background: #161b22;
+                            background: #130b10;
                             border-radius: 10px;
                             height: 64px;
                             VerticalLayout {
@@ -455,12 +478,12 @@ export component AppWindow inherits Window {
                                     text: "Desktop Environment Store";
                                     font-size: 14px;
                                     font-weight: 600;
-                                    color: #c9d1d9;
+                                    color: #c9a8a0;
                                 }
                                 Text {
                                     text: "Browse and install Lilith Linux desktop environments. Click Install to add a new DE.";
                                     font-size: 12px;
-                                    color: #8b949e;
+                                    color: #9e7070;
                                 }
                             }
                         }
@@ -468,79 +491,79 @@ export component AppWindow inherits Window {
                         // DE list
                         for de[index] in de-store-items: Rectangle {
                             height: 58px;
-                            background: de-hover.has-hover ? #1c2128 : #161b22;
+                            background: de-hover.has-hover ? #2a0f18 : #130b10;
                             border-radius: 10px;
 
-                            de-hover := TouchArea {
-                                HorizontalLayout {
-                                    padding-top: 14px;
-                                    padding-bottom: 14px;
-                                    padding-left: 18px;
-                                    padding-right: 18px;
-                                    spacing: 12px;
+                            de-hover := TouchArea {}
+
+                            HorizontalLayout {
+                                padding-top: 14px;
+                                padding-bottom: 14px;
+                                padding-left: 18px;
+                                padding-right: 18px;
+                                spacing: 12px;
+                                alignment: center;
+
+                                // Install spinner
+                                if de.is-installing: Rectangle {
+                                    width: 20px;
+                                    height: 20px;
+                                    border-radius: 10px;
+                                    background: #f97316;
+                                }
+
+                                VerticalLayout {
+                                    vertical-stretch: 1;
+                                    spacing: 2px;
                                     alignment: center;
 
-                                    // Install spinner
-                                    if de.is-installing: Rectangle {
-                                        width: 20px;
-                                        height: 20px;
-                                        border-radius: 10px;
-                                        background: #f97316;
+                                    Text {
+                                        text: de.name;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        color: #f5e6e0;
+                                        vertical-alignment: center;
                                     }
 
-                                    VerticalLayout {
-                                        vertical-stretch: 1;
-                                        spacing: 2px;
-                                        alignment: center;
-
-                                        Text {
-                                            text: de.name;
-                                            font-size: 14px;
-                                            font-weight: 600;
-                                            color: #f0f6fc;
-                                            vertical-alignment: center;
-                                        }
-
-                                        if de.is-installing: Text {
-                                            text: de.install-status;
-                                            font-size: 11px;
-                                            color: #f97316;
-                                        }
+                                    if de.is-installing: Text {
+                                        text: de.install-status;
+                                        font-size: 11px;
+                                        color: #f97316;
                                     }
+                                }
 
-                                    Rectangle { horizontal-stretch: 1; }
+                                Rectangle { horizontal-stretch: 1; }
 
-                                    if de.is-installing: Pill {
-                                        label: "Installing...";
-                                        pill-bg: #f9731622;
-                                        pill-color: #f97316;
+                                if de.is-installing: Pill {
+                                    label: "Installing...";
+                                    pill-bg: #f9731622;
+                                    pill-color: #f97316;
+                                }
+
+                                if !de.is-installing && de.is-installed: Pill {
+                                    label: "Installed";
+                                    pill-bg: #23863633;
+                                    pill-color: #3fb950;
+                                }
+
+                                if !de.is-installing && de.is-installed: SmallBtn {
+                                    label: "Remove";
+                                    clicked => {
+                                        root.confirm-index = index;
+                                        root.confirm-title = "Remove " + de.name + "?";
+                                        root.confirm-message = "This will remove " + de.name + ". Saved profiles will be preserved on disk.";
+                                        root.show-remove-confirm = true;
                                     }
+                                }
 
-                                    if !de.is-installing && de.is-installed: Pill {
-                                        label: "Installed";
-                                        pill-bg: #23863633;
-                                        pill-color: #3fb950;
-                                    }
-
-                                    if !de.is-installing && de.is-installed: SmallBtn {
-                                        label: "Remove";
-                                        clicked => {
-                                            root.confirm-index = index;
-                                            root.confirm-title = "Remove " + de.name + "?";
-                                            root.confirm-message = "This will remove " + de.name + ". Saved profiles will be preserved on disk.";
-                                            root.show-remove-confirm = true;
-                                        }
-                                    }
-
-                                    if !de.is-installing && !de.is-installed: SmallBtn {
-                                        label: "Install";
-                                        is-primary: true;
-                                        clicked => {
-                                            root.confirm-index = index;
-                                            root.confirm-title = "Install " + de.name + "?";
-                                            root.confirm-message = "Install " + de.name + " desktop environment via pkexec apt.";
-                                            root.show-install-confirm = true;
-                                        }
+                                if !de.is-installing && !de.is-installed: SmallBtn {
+                                    label: "Install";
+                                    is-primary: true;
+                                    clicked => {
+                                        root.confirm-index = index;
+                                        root.confirm-title = "Install " + de.name + "?";
+                                        root.confirm-message = "Install " + de.name + " desktop environment via pkexec apt.";
+                                        root.show-install-confirm = true;
                                     }
                                 }
                             }
@@ -556,7 +579,7 @@ export component AppWindow inherits Window {
 
                         // Info card
                         Rectangle {
-                            background: #161b22;
+                            background: #130b10;
                             border-radius: 10px;
                             height: 56px;
                             VerticalLayout {
@@ -569,12 +592,12 @@ export component AppWindow inherits Window {
                                     text: "Saved Desktop Profiles";
                                     font-size: 14px;
                                     font-weight: 600;
-                                    color: #c9d1d9;
+                                    color: #c9a8a0;
                                 }
                                 Text {
                                     text: "Save and restore complete desktop configurations. Profiles are grouped by desktop environment.";
                                     font-size: 12px;
-                                    color: #8b949e;
+                                    color: #9e7070;
                                 }
                             }
                         }
@@ -582,7 +605,7 @@ export component AppWindow inherits Window {
                         // Empty state
                         if display-items.length == 0: Rectangle {
                             height: 160px;
-                            background: #161b22;
+                            background: #130b10;
                             border-radius: 10px;
                             VerticalLayout {
                                 alignment: center;
@@ -592,13 +615,13 @@ export component AppWindow inherits Window {
                                     text: "No profiles saved yet";
                                     font-size: 16px;
                                     font-weight: 600;
-                                    color: #8b949e;
+                                    color: #9e7070;
                                     horizontal-alignment: center;
                                 }
                                 Text {
                                     text: "Install a desktop environment from the DE Store, then save your first profile.";
                                     font-size: 13px;
-                                    color: #484f58;
+                                    color: #6b4040;
                                     horizontal-alignment: center;
                                     wrap: word-wrap;
                                 }
@@ -608,10 +631,10 @@ export component AppWindow inherits Window {
                         // Profile grid (flat list with section headers + cards)
                         for item[index] in display-items: Rectangle {
                             height: item.item-type == 0 ? 42px : 100px;
-                            background: item.item-type == 0 ? transparent : (card-hover.has-hover ? #1c2128 : #161b22);
+                            background: item.item-type == 0 ? transparent : (card-hover.has-hover ? #2a0f18 : #130b10);
                             border-radius: item.item-type == 0 ? 0px : 10px;
 
-                            card-hover := TouchArea {
+                            card-hover := TouchArea {}
                                 HorizontalLayout {
                                     padding: item.item-type == 0 ? 0px : 14px;
                                     spacing: 12px;
@@ -630,7 +653,7 @@ export component AppWindow inherits Window {
                                             }
                                             Rectangle {
                                                 height: 2px;
- background: #f9731633;
+                                                background: #f9731633;
                                                 vertical-stretch: 0;
                                                 y: (parent.height - self.height) / 2;
                                                 horizontal-stretch: 1;
@@ -651,22 +674,30 @@ export component AppWindow inherits Window {
                                             alignment: center;
                                             vertical-stretch: 1;
 
-                                            // Thumbnail placeholder
+                                            // Thumbnail image container
                                             Rectangle {
                                                 width: 120px;
                                                 height: 72px;
-                                                background: #21262d;
+                                                background: #1e0f14;
                                                 border-radius: 6px;
                                                 border-width: 1px;
-                                                border-color: #30363d;
+                                                border-color: #3d1520;
+                                                clip: true;
 
-                                                VerticalLayout {
+                                                if !item.has-thumbnail: VerticalLayout {
                                                     alignment: center;
                                                     Text {
-                                                        text: item.profile-thumbnail == "" ? "📷" : "🖼";
+                                                        text: "📷";
                                                         font-size: 24px;
                                                         horizontal-alignment: center;
                                                     }
+                                                }
+
+                                                if item.has-thumbnail: Image {
+                                                    source: item.profile-thumbnail;
+                                                    width: 100%;
+                                                    height: 100%;
+                                                    image-fit: cover;
                                                 }
                                             }
 
@@ -676,17 +707,17 @@ export component AppWindow inherits Window {
                                                     text: item.profile-name;
                                                     font-size: 14px;
                                                     font-weight: 600;
-                                                    color: #f0f6fc;
+                                                    color: #f5e6e0;
                                                 }
                                                 Text {
                                                     text: item.profile-de;
                                                     font-size: 11px;
-                                                    color: #8b949e;
+                                                    color: #9e7070;
                                                 }
                                                 Text {
                                                     text: item.profile-created;
                                                     font-size: 11px;
-                                                    color: #484f58;
+                                                    color: #6b4040;
                                                 }
                                             }
 
@@ -717,7 +748,6 @@ export component AppWindow inherits Window {
                                             }
                                         }
                                 }
-                            }
                             animate background { duration: 120ms; }
                         }
                     }
@@ -762,10 +792,10 @@ export component AppWindow inherits Window {
 
         Rectangle {
             width: 440px;
-            background: #161b22;
+            background: #130b10;
             border-radius: 12px;
             border-width: 1px;
-            border-color: #30363d;
+            border-color: #3d1520;
             x: (parent.width  - self.width)  / 2;
             y: (parent.height - self.height) / 2;
 
@@ -778,7 +808,7 @@ export component AppWindow inherits Window {
                         text: root.confirm-title;
                         font-size: 18px;
                         font-weight: 700;
-                        color: #f0f6fc;
+                        color: #f5e6e0;
                         vertical-alignment: center;
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -788,12 +818,12 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { height: 1px; background: #30363d; }
+                Rectangle { height: 1px; background: #3d1520; }
 
                 Text {
                     text: root.confirm-message;
                     font-size: 13px;
-                    color: #c9d1d9;
+                    color: #c9a8a0;
                     wrap: word-wrap;
                 }
 
@@ -828,10 +858,10 @@ export component AppWindow inherits Window {
 
         Rectangle {
             width: 440px;
-            background: #161b22;
+            background: #130b10;
             border-radius: 12px;
             border-width: 1px;
-            border-color: #30363d;
+            border-color: #3d1520;
             x: (parent.width  - self.width)  / 2;
             y: (parent.height - self.height) / 2;
 
@@ -844,7 +874,7 @@ export component AppWindow inherits Window {
                         text: root.confirm-title;
                         font-size: 18px;
                         font-weight: 700;
-                        color: #f0f6fc;
+                        color: #f5e6e0;
                         vertical-alignment: center;
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -854,12 +884,12 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { height: 1px; background: #30363d; }
+                Rectangle { height: 1px; background: #3d1520; }
 
                 Text {
                     text: root.confirm-message;
                     font-size: 13px;
-                    color: #c9d1d9;
+                    color: #c9a8a0;
                     wrap: word-wrap;
                 }
 
@@ -894,10 +924,10 @@ export component AppWindow inherits Window {
 
         Rectangle {
             width: 440px;
-            background: #161b22;
+            background: #130b10;
             border-radius: 12px;
             border-width: 1px;
-            border-color: #30363d;
+            border-color: #3d1520;
             x: (parent.width  - self.width)  / 2;
             y: (parent.height - self.height) / 2;
 
@@ -910,7 +940,7 @@ export component AppWindow inherits Window {
                         text: root.confirm-title;
                         font-size: 18px;
                         font-weight: 700;
-                        color: #f0f6fc;
+                        color: #f5e6e0;
                         vertical-alignment: center;
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -920,12 +950,12 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { height: 1px; background: #30363d; }
+                Rectangle { height: 1px; background: #3d1520; }
 
                 Text {
                     text: root.confirm-message;
                     font-size: 13px;
-                    color: #c9d1d9;
+                    color: #c9a8a0;
                     wrap: word-wrap;
                 }
 
@@ -960,10 +990,10 @@ export component AppWindow inherits Window {
 
         Rectangle {
             width: 440px;
-            background: #161b22;
+            background: #130b10;
             border-radius: 12px;
             border-width: 1px;
-            border-color: #30363d;
+            border-color: #3d1520;
             x: (parent.width  - self.width)  / 2;
             y: (parent.height - self.height) / 2;
 
@@ -976,7 +1006,7 @@ export component AppWindow inherits Window {
                         text: root.confirm-title;
                         font-size: 18px;
                         font-weight: 700;
-                        color: #f0f6fc;
+                        color: #f5e6e0;
                         vertical-alignment: center;
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -986,12 +1016,12 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { height: 1px; background: #30363d; }
+                Rectangle { height: 1px; background: #3d1520; }
 
                 Text {
                     text: root.confirm-message;
                     font-size: 13px;
-                    color: #c9d1d9;
+                    color: #c9a8a0;
                     wrap: word-wrap;
                 }
 
@@ -1026,10 +1056,10 @@ export component AppWindow inherits Window {
 
         Rectangle {
             width: 500px;
-            background: #161b22;
+            background: #130b10;
             border-radius: 12px;
             border-width: 1px;
-            border-color: #30363d;
+            border-color: #3d1520;
             x: (parent.width  - self.width)  / 2;
             y: (parent.height - self.height) / 2;
 
@@ -1042,7 +1072,7 @@ export component AppWindow inherits Window {
                         text: "Save Profile";
                         font-size: 18px;
                         font-weight: 700;
-                        color: #f0f6fc;
+                        color: #f5e6e0;
                         vertical-alignment: center;
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -1057,7 +1087,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle { height: 1px; background: #30363d; }
+                Rectangle { height: 1px; background: #3d1520; }
 
                 // Profile name
                 VerticalLayout {
@@ -1065,7 +1095,7 @@ export component AppWindow inherits Window {
                     Text {
                         text: "Profile Name";
                         font-size: 12px;
-                        color: #8b949e;
+                        color: #9e7070;
                     }
                     save-profile-name := LineEdit {
                         placeholder-text: "e.g., Dark Plasma Setup";
@@ -1079,13 +1109,13 @@ export component AppWindow inherits Window {
                     Text {
                         text: "Desktop Environment";
                         font-size: 12px;
-                        color: #8b949e;
+                        color: #9e7070;
                     }
                     Text {
                         text: root.save-de-name;
                         font-size: 14px;
                         font-weight: 600;
-                        color: #f0f6fc;
+                        color: #f5e6e0;
                     }
                 }
 
@@ -1095,7 +1125,7 @@ export component AppWindow inherits Window {
                     Text {
                         text: "Thumbnail Image";
                         font-size: 12px;
-                        color: #8b949e;
+                        color: #9e7070;
                     }
                     HorizontalLayout {
                         spacing: 8px;
@@ -1103,11 +1133,15 @@ export component AppWindow inherits Window {
                             placeholder-text: "Path to image or leave empty for default";
                             vertical-stretch: 1;
                             height: 36px;
+                            text: root.pending-thumbnail-path;
                         }
                         SecondaryBtn {
                             label: "Browse";
                             height: 36px;
-                            clicked => { root.browse-thumbnail(); }
+                            clicked => {
+                                root.browse-thumbnail();
+                                save-thumbnail-path.text = root.pending-thumbnail-path;
+                            }
                         }
                     }
                 }
@@ -1118,7 +1152,7 @@ export component AppWindow inherits Window {
                     Text {
                         text: "Remote Path (optional)";
                         font-size: 12px;
-                        color: #8b949e;
+                        color: #9e7070;
                     }
                     save-remote-path := LineEdit {
                         placeholder-text: root.last-remote-path != "" ? root.last-remote-path : "/mnt/backup/profiles/";
@@ -1137,6 +1171,7 @@ export component AppWindow inherits Window {
                             save-profile-name.text = "";
                             save-thumbnail-path.text = "";
                             save-remote-path.text = "";
+                            root.pending-thumbnail-path = "";
                         }
                     }
                     PrimaryBtn {
@@ -1153,6 +1188,7 @@ export component AppWindow inherits Window {
                             save-profile-name.text = "";
                             save-thumbnail-path.text = "";
                             save-remote-path.text = "";
+                            root.pending-thumbnail-path = "";
                         }
                     }
                 }
