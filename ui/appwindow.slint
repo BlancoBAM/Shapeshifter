@@ -166,6 +166,17 @@ export component AppWindow inherits Window {
     in-out property <[DisplayItem]> display-items;
     in-out property <string>  status-message: "";
     in-out property <string>  status-type: "info";
+
+    // Auto-clear status message after 5 seconds
+    property <int> status-tick: 0;
+    Timer {
+        interval: 5s;
+        running: root.status-message != "";
+        triggered => {
+            root.status-message = "";
+            root.status-type = "info";
+        }
+    }
     in-out property <string>  current-de;
     in-out property <string>  current-user;
     in-out property <string>  application-version;

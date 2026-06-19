@@ -15,6 +15,11 @@ fi
 mkdir -p /etc/xdg/autostart
 cp /usr/share/applications/shapeshifter-restore.desktop /etc/xdg/autostart/shapeshifter-restore.desktop 2>/dev/null || true
 
+# Reload polkit to register policy actions
+if command -v systemctl &>/dev/null; then
+    systemctl try-reload-or-restart polkit.service 2>/dev/null || true
+fi
+
 # Create config directory
 mkdir -p /etc/shapeshifter
 
