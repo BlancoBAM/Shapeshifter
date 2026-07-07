@@ -171,12 +171,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
+      - name: Extract version from Cargo.toml
         id: version
         run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          # Always read version from Cargo.toml so artifact name matches the package job
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          echo "Version from Cargo.toml: $VERSION"
 
       - name: Download deb artifact
         uses: actions/download-artifact@v4
