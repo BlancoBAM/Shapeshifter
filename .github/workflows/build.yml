@@ -17,6 +17,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Remove broken Microsoft apt sources
+        run: |
+          # Microsoft Azure CLI and prod repos intermittently fail with NOSPLIT/unsigned
+          # errors on GitHub runners — remove them before running apt-get update
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/azure-cli.sources \
+                     /etc/apt/sources.list.d/microsoft-prod.sources 2>/dev/null || true
+
       - name: Install system dependencies
         run: |
           sudo apt-get update -y
@@ -74,6 +83,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Remove broken Microsoft apt sources
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/azure-cli.sources \
+                     /etc/apt/sources.list.d/microsoft-prod.sources 2>/dev/null || true
 
       - name: Install system dependencies
         run: |
